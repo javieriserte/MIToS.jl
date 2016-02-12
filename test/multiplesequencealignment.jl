@@ -1,12 +1,10 @@
-using Base.Test
-using MIToS.MSA
+# using Base.Test
+# using MIToS.MSA
 
 # Fields of MultipleSequenceAlignment
-#const msa_fields = Symbol[:id, :msa, :sequencemapping, :filecolumnmapping, :annotations]
 const msa_fields = Symbol[:id, :msa, :annotations]
 
 # Fields of AlignedAlignedSequence
-#const seq_fields = Symbol[:id, :index, :sequence, :sequencemapping, :filecolumnmapping, :annotations]
 const seq_fields = Symbol[:id, :index, :sequence, :annotations]
 
 print("""
@@ -49,8 +47,6 @@ end
 @test pfam.annotations.residues[("F112_SSV1/3-112","SS")] == "X---HHHHHHHHHHHHHHHSEE-HHHHHHHH---HHHHHHHHHHHHHHHHH-TTTEEEEE-SS-EEEEE--XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 @test pfam.annotations.columns["seq_cons"] == "...NshphAclhaKILppKtElolEDIlAQFEISsosAYsI.+sL+hICEpH.-ECpsppKsRKTlhh.hKpEphppptpEp..ppItKIhsAp................"
 @test pfam.annotations.sequences[("F112_SSV1/3-112","DR")] == "PDB; 2VQC A; 4-73;"
-
-@test getseq2pdb(pfam)["F112_SSV1/3-112"] == [("2VQC","A")]
 
 print("""
 Test parse for string inputs
@@ -143,7 +139,23 @@ for field in msa_fields
     @eval @test fasta.$field == pfam.$field
   end
 end
-# @test isempty(fasta.annotations)
+
+print("""
+Test parse with ambiguous or not standard residues (are gaps on MIToS)
+""")
+
+let default = read(joinpath(pwd(), "data", "alphabet.fasta"), FASTA, generatemapping=true),
+    notused = read(joinpath(pwd(), "data", "alphabet.fasta"), FASTA, checkalphabet=true) # deletenotalphabetsequences! is called also for Raw & Stockholm
+
+  @test Base.vec(default[1,:]) == res"ARNDCQEGHILKMFPSTWYV"
+  for i in 2:nsequences(default)
+    @test Base.vec(default[i,:]) == res"AR-DCQEGHILKMFPSTWYV"
+    @test  getsequencemapping(default,1) == getsequencemapping(default,i)
+  end
+
+  @test nsequences(notused) == 1
+  @test nsequences(read(joinpath(pwd(), "data", "alphabet.fasta"), FASTA, Matrix{Residue}, checkalphabet=true)) == 1 # _strings_to_msa is called also for Raw & Stockholm
+end
 
 print("""
 
@@ -464,24 +476,4 @@ end
 let io = IOBuffer()
   print(io, small_na, Stockholm)
   @test parse(takebuf_string(io), Stockholm) == small_na
-end
-
-
-print("""
-
-Test download
-=============
-""")
-
-let pfam_code = "PF11591"
-  @test_throws ErrorException downloadpfam("2vqc")
-  filename = downloadpfam(pfam_code)
-  try
-    aln = read(filename, Stockholm)
-    if size(aln) == (6,34)
-      @test getannotfile(aln, "ID") == "2Fe-2S_Ferredox"
-    end
-  finally
-    rm(filename)
-  end
 end

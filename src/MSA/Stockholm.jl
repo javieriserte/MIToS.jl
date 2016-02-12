@@ -54,11 +54,12 @@ end
 
 function parse(io::Union{IO, AbstractString}, format::Type{Stockholm},
                output::Type{AnnotatedMultipleSequenceAlignment}; generatemapping::Bool=false,
-               useidcoordinates::Bool=false, deletefullgaps::Bool=true)
+               useidcoordinates::Bool=false, deletefullgaps::Bool=true, checkalphabet::Bool=false)
   IDS, SEQS, GF, GS, GC, GR = _pre_readstockholm(io)
   annot = Annotations(GF, GS, GC, GR)
   if generatemapping
     MSA, MAP = useidcoordinates && hascoordinates(IDS[1]) ? _to_msa_mapping(SEQS, IDS) : _to_msa_mapping(SEQS)
+    setannotfile!(annot, "NCol", string(size(MSA,2)))
     setannotfile!(annot, "ColMap", join(vcat(1:size(MSA,2)), ','))
     for i in 1:length(IDS)
       setannotsequence!(annot, IDS[i], "SeqMap", MAP[i])
@@ -67,37 +68,40 @@ function parse(io::Union{IO, AbstractString}, format::Type{Stockholm},
     MSA = convert(Matrix{Residue}, SEQS)
   end
   msa = AnnotatedMultipleSequenceAlignment(IndexedArray(IDS), MSA, annot)
+  if checkalphabet
+    deletenotalphabetsequences!(msa, SEQS)
+  end
   if deletefullgaps
     deletefullgapcolumns!(msa)
   end
   msa
 end
 
-function parse(io::Union{IO, AbstractString}, format::Type{Stockholm}, output::Type{MultipleSequenceAlignment}; deletefullgaps::Bool=true)
+function parse(io::Union{IO, AbstractString}, format::Type{Stockholm}, output::Type{MultipleSequenceAlignment}; deletefullgaps::Bool=true, checkalphabet::Bool=false)
   # Could be faster with a special _pre_readstockholm
   IDS, SEQS, GF, GS, GC, GR = _pre_readstockholm(io)
   msa = MultipleSequenceAlignment(IndexedArray(IDS), convert(Matrix{Residue}, SEQS))
+  if checkalphabet
+    deletenotalphabetsequences!(msa, SEQS)
+  end
   if deletefullgaps
     deletefullgapcolumns!(msa)
   end
   msa
 end
 
-function parse(io::Union{IO,AbstractString}, format::Type{Stockholm}, output::Type{Matrix{Residue}}; deletefullgaps::Bool=true)
+function parse(io::Union{IO,AbstractString}, format::Type{Stockholm}, output::Type{Matrix{Residue}}; deletefullgaps::Bool=true, checkalphabet::Bool=false)
   # Could be faster with a special _pre_readstockholm
   IDS, SEQS, GF, GS, GC, GR = _pre_readstockholm(io)
-  if deletefullgaps
-    return(deletefullgapcolumns(convert(Matrix{Residue}, SEQS)))
-  else
-    return(convert(Matrix{Residue}, SEQS))
-  end
+  _strings_to_msa(SEQS, deletefullgaps, checkalphabet)
 end
 
 parse(io, format::Type{Stockholm};  generatemapping::Bool=false,
-      useidcoordinates::Bool=false, deletefullgaps::Bool=true) = parse(io, Stockholm, AnnotatedMultipleSequenceAlignment,
+      useidcoordinates::Bool=false, deletefullgaps::Bool=true, checkalphabet::Bool=false) = parse(io, Stockholm, AnnotatedMultipleSequenceAlignment,
                                                                       generatemapping=generatemapping,
                                                                       useidcoordinates=useidcoordinates,
-                                                                      deletefullgaps=deletefullgaps)
+                                                                      deletefullgaps=deletefullgaps,
+                                                                      checkalphabet=checkalphabet)
 
 # Print Pfam
 # ==========
@@ -143,43 +147,3 @@ function print(io::IO, msa::MultipleSequenceAlignment, format::Type{Stockholm})
 end
 
 print(msa::AnnotatedMultipleSequenceAlignment) = print(STDOUT, msa, Stockholm)
-
-# Download Pfam
-# =============
-"""
-Download a gzipped stockholm full alignment for the `pfamcode`.
-The extension of the downloaded file is `.stockholm.gz` by default. The `filename` can be changed, but the `.gz` at the end is mandatory.
-"""
-function downloadpfam(pfamcode::ASCIIString; filename::ASCIIString="$pfamcode.stockholm.gz")
-  if ismatch(r"^PF\d{5}$"i, pfamcode) # length(pfamcode)== 7 && ( pfamcode[1:2] == "PF" || pfamcode[1:2] == "pf" )
-    #namegz = string(filename, ".gz")
-    download(string("http://pfam.xfam.org/family/PF", pfamcode[3:end], "/alignment/full/gzipped"), filename) # namegz)
-    #run(`gzip -d $namegz`)
-  else
-    throw( ErrorException( string(pfamcode, " is not a correct Pfam code") ) )
-  end
-end
-
-# PDB ids from Pfam sequence annotations
-# ======================================
-
-const _regex_PDB_from_GS = r"PDB;\s+(\w+)\s+(\w);\s+\w+-\w+;" # i.e.: "PDB; 2VQC A; 4-73;\n"
-
-"Generates from a Pfam `msa` a `Dict{ASCIIString, Vector{Tuple{ASCIIString,ASCIIString}}}` with sequence ID as key and list of tuples of PDB code and chain as values."
-function getseq2pdb(msa::AnnotatedMultipleSequenceAlignment)
-    dict = Dict{ASCIIString, Vector{Tuple{ASCIIString,ASCIIString}}}()
-    for (k, v) in getannotsequence(msa)
-        id, annot = k
-        # i.e.: "#=GS F112_SSV1/3-112 DR PDB; 2VQC A; 4-73;\n"
-        if annot == "DR" && ismatch(_regex_PDB_from_GS, v)
-            for m in eachmatch(_regex_PDB_from_GS, v)
-                if haskey(dict, id)
-                    push!(dict[id], (m.captures[1], m.captures[2]))
-                else
-                    dict[id] = Tuple{ASCIIString,ASCIIString}[ (m.captures[1], m.captures[2]) ]
-                end
-            end
-        end
-    end
-    sizehint!(dict, length(dict))
-end

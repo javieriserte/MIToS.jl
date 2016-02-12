@@ -19,14 +19,17 @@ function _buslje09(aln::Matrix{Residue}; lambda::Float64=0.05,
   aln = filtercolumns(aln, used)
   clusters = clustering ? hobohmI(aln, threshold) : NoClustering()
   mi = _buslje09(aln, usegap, clusters, lambda, apc)
-  #rand_mi = Array(Float64, size(mi, 1), size(mi, 2), samples)
-  rand_mi = Array(typeof(mi), samples)
-  for ns in 1:samples
-    fixedgaps ? shuffle_residues_sequencewise!(aln) : shuffle_sequencewise!(aln)
-    rand_mi[ns] = _buslje09(aln, usegap, clusters, lambda, apc)
-  end
   usedcol = collect(1:ncol)[used]
-  (zscore(rand_mi, mi), mi, usedcol)
+  if samples > 0
+    rand_mi = Array(typeof(mi), samples)
+    for ns in 1:samples
+      fixedgaps ? shuffle_residues_sequencewise!(aln) : shuffle_sequencewise!(aln)
+      rand_mi[ns] = _buslje09(aln, usegap, clusters, lambda, apc)
+    end
+    return(zscore(rand_mi, mi), mi, usedcol)
+  else
+    return(zeros(mi), mi, usedcol)
+  end
 end
 
 """
@@ -79,8 +82,8 @@ end
 # MIToS BLMI: Blosum MI
 # =====================
 
-function _BLMI(aln, clusters, alpha, beta, apc)
-  mi = estimateincolumns(aln, Float64, ResidueProbability{Float64, 2, false}, alpha, beta, MutualInformation{Float64}(), zero(AdditiveSmoothing{Float64}) , clusters, false, 0.0)
+function _BLMI(aln, clusters, alpha, beta, apc, lambda::Float64=zero(Float64))
+  mi = estimateincolumns(aln, Float64, ResidueProbability{Float64, 2, false}, alpha, beta, MutualInformation{Float64}(), AdditiveSmoothing(lambda), clusters, false, 0.0)
   if apc
     APC!(mi)
   end
@@ -89,20 +92,24 @@ end
 
 function _BLMI(aln::Matrix{Residue}; beta::Float64=4.6, threshold::Float64=0.62,
                                      maxgap::Float64=0.5, apc::Bool=true, samples::Int=100,
-                                     fixedgaps::Bool=true)
+                                     fixedgaps::Bool=true, lambda::Float64=zero(Float64))
   used = gappercentage(aln,1) .<= maxgap
   ncol = ncolumns(aln)
   aln = filtercolumns(aln, used)
   clusters = hobohmI(aln, threshold)
   numbercl = getnclusters(clusters)
-  mi = _BLMI(aln, clusters, numbercl, beta, apc)
-  rand_mi = Array(typeof(mi), samples)
-  for ns in 1:samples
-    fixedgaps ? shuffle_residues_sequencewise!(aln) : shuffle_sequencewise!(aln)
-    rand_mi[ns] = _BLMI(aln, clusters, numbercl, beta, apc)
-  end
+  mi = _BLMI(aln, clusters, numbercl, beta, apc, lambda)
   usedcol = collect(1:ncol)[used]
-  (zscore(rand_mi, mi), mi, usedcol)
+  if samples > 0
+    rand_mi = Array(typeof(mi), samples)
+    for ns in 1:samples
+      fixedgaps ? shuffle_residues_sequencewise!(aln) : shuffle_sequencewise!(aln)
+      rand_mi[ns] = _BLMI(aln, clusters, numbercl, beta, apc, lambda)
+    end
+    return(zscore(rand_mi, mi), mi, usedcol)
+  else
+    return(zeros(mi), mi, usedcol)
+  end
 end
 
 """
@@ -112,6 +119,7 @@ Calculates a Z score (BLMI) and a corrected MI/MIp as described on **Busjle et. 
 Argument, type, default value and descriptions:
 
   - beta        Float64   4.6     β for BLOSUM62 pseudo frequencies
+  - lambda      Float64   0.0     Low count value
   - threshold   Float64   0.62    Percent identity threshold for sequence clustering (Hobohm I)
   - maxgap      Float64   0.5     Maximum fraction of gaps in positions included in calculation
   - apc         Bool      true    Use APC correction (MIp)

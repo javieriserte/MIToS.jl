@@ -43,11 +43,13 @@ function _pre_readfasta(io::IO)
   (IDS, SEQS)
 end
 
-function parse(io::Union{IO,AbstractString}, format::Type{FASTA}, output::Type{AnnotatedMultipleSequenceAlignment}; generatemapping::Bool=false, useidcoordinates::Bool=false, deletefullgaps::Bool=true)
+function parse(io::Union{IO,AbstractString}, format::Type{FASTA}, output::Type{AnnotatedMultipleSequenceAlignment}; generatemapping::Bool=false,
+               useidcoordinates::Bool=false, deletefullgaps::Bool=true, checkalphabet::Bool=false)
   IDS, SEQS = _pre_readfasta(io)
   annot = Annotations()
   if generatemapping
     MSA, MAP = useidcoordinates  && hascoordinates(IDS[1]) ? _to_msa_mapping(SEQS, IDS) : _to_msa_mapping(SEQS)
+    setannotfile!(annot, "NCol", string(size(MSA,2)))
     setannotfile!(annot, "ColMap", join(vcat(1:size(MSA,2)), ','))
     for i in 1:length(IDS)
       setannotsequence!(annot, IDS[i], "SeqMap", MAP[i])
@@ -56,36 +58,39 @@ function parse(io::Union{IO,AbstractString}, format::Type{FASTA}, output::Type{A
     MSA = convert(Matrix{Residue}, SEQS)
   end
   msa = AnnotatedMultipleSequenceAlignment(IndexedArray(IDS), MSA, annot)
+  if checkalphabet
+    deletenotalphabetsequences!(msa, SEQS)
+  end
   if deletefullgaps
     deletefullgapcolumns!(msa)
   end
   msa
 end
 
-function parse(io::Union{IO,AbstractString}, format::Type{FASTA}, output::Type{MultipleSequenceAlignment}; deletefullgaps::Bool=true)
+function parse(io::Union{IO,AbstractString}, format::Type{FASTA}, output::Type{MultipleSequenceAlignment}; deletefullgaps::Bool=true, checkalphabet::Bool=false)
   IDS, SEQS = _pre_readfasta(io)
   msa = MultipleSequenceAlignment(IndexedArray(IDS), convert(Matrix{Residue}, SEQS))
+  if checkalphabet
+    deletenotalphabetsequences!(msa, SEQS)
+  end
   if deletefullgaps
     deletefullgapcolumns!(msa)
   end
   msa
 end
 
-function parse(io::Union{IO,AbstractString}, format::Type{FASTA}, output::Type{Matrix{Residue}}; deletefullgaps::Bool=true)
+function parse(io::Union{IO,AbstractString}, format::Type{FASTA}, output::Type{Matrix{Residue}}; deletefullgaps::Bool=true, checkalphabet::Bool=false)
   IDS, SEQS = _pre_readfasta(io)
-  if deletefullgaps
-    return(deletefullgapcolumns(convert(Matrix{Residue}, SEQS)))
-  else
-    return(convert(Matrix{Residue}, SEQS))
-  end
+  _strings_to_msa(SEQS, deletefullgaps, checkalphabet)
 end
 
 parse(io::Union{IO,AbstractString}, format::Type{FASTA}; generatemapping::Bool=false,
-      useidcoordinates::Bool=false, deletefullgaps::Bool=true) = parse(io, FASTA,
+      useidcoordinates::Bool=false, deletefullgaps::Bool=true, checkalphabet::Bool=false) = parse(io, FASTA,
                                                                        AnnotatedMultipleSequenceAlignment;
                                                                        generatemapping=generatemapping,
                                                                        useidcoordinates=useidcoordinates,
-                                                                       deletefullgaps=deletefullgaps)
+                                                                       deletefullgaps=deletefullgaps,
+                                                                       checkalphabet=checkalphabet)
 
 # Print FASTA
 # ===========

@@ -72,6 +72,61 @@ end
 
 @doc """`parse(io::Union{IO, AbstractString}, format[, output; generatemapping::Bool=false, useidcoordinates::Bool=false, deletefullgaps::Bool=true ])`
 
-The keyword argument `generatemapping` (`false` by default) indicates if the mapping of the sequences ("SeqMap") and columns ("ColMap") should be generated and saved in the annotations.
+The keyword argument `generatemapping` (`false` by default) indicates if the mapping of the sequences ("SeqMap") and columns ("ColMap")
+and the number of columns in the original MSA ("NCol") should be generated and saved in the annotations.
 If `useidcoordinates` is `true` (default: `false`) the sequence IDs of the form "ID/start-end" are parsed and used for determining the start and end positions when the mappings are generated.
-`deletefullgaps` (`true` by default) indicates if columns 100% gaps (generally inserts from a HMM) must be removed from the MSA.""" parse
+`deletefullgaps` (`true` by default) indicates if columns 100% gaps (generally inserts from a HMM) must be removed from the MSA.
+By default, the ambiguous or not standard residues are replaced by gaps (i.e. `J` for leucine or isoleucine).
+But, if the keyword argument `checkalphabet` is `true` (`false` by default), the sequences with residues that do not belong to the defined alphabet are deleted.""" parse
+
+# Delete sequences with ambiguous or not standard residues
+# ========================================================
+
+const _alphabet = "ARNDCQEGHILKMFPSTWYV-"
+
+function _checkalphabet(seqs::Vector{ASCIIString})
+  N = length(seqs)
+  use = trues(N)
+  for i in 1:N
+    @inbounds seq = seqs[i]
+    for char in seq
+      if !( uppercase(char) in _alphabet )
+        @inbounds use[i] = false
+        break
+      end
+    end
+  end
+  use
+end
+
+function deletenotalphabetsequences!(msa::AbstractMultipleSequenceAlignment, seqs::Vector{ASCIIString}, annotate::Bool=true)
+  mask = _checkalphabet(seqs)
+  number = sum(~mask)
+  if number != 0
+    annotate && annotate_modification!(msa, string("deletenotalphabetsequences!  :  Deletes ", number," sequences with ambiguous or not standard residues (Alphabet: ", _alphabet, " )"))
+    filtersequences!(msa, mask, annotate)
+  end
+  msa
+end
+
+function deletenotalphabetsequences(msa::Matrix{Residue}, seqs::Vector{ASCIIString})
+  mask = _checkalphabet(seqs)
+  number = sum(~mask)
+  if number != 0
+    return(filtersequences(msa, mask))
+  end
+  msa
+end
+
+function _strings_to_msa(seqs::Vector{ASCIIString}, deletefullgaps::Bool, checkalphabet::Bool)
+  msa = convert(Matrix{Residue}, seqs)
+  if deletefullgaps && (!checkalphabet)
+    return( deletefullgapcolumns(msa) )
+  elseif deletefullgaps && checkalphabet
+    return( deletefullgapcolumns( deletenotalphabetsequences(msa, seqs) ) )
+  elseif (!deletefullgaps) && checkalphabet
+    return( deletenotalphabetsequences(msa, seqs) )
+  else
+    return(msa)
+  end
+end
