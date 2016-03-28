@@ -1,29 +1,38 @@
 using Base.Intrinsics
 
-import Base: convert, ==, !=, .==, zero, show, length, getindex, setindex!, rand, string #, <, <=
+import Base: convert, ==, !=, .==, zero, show, length,
+             getindex, setindex!, rand, string
 
 # Residues
 # ========
 
 """
-Residue
-=======
+Most of the **MIToS** design is created around the `Residue` bitstype. It represents the 20 natural amino acids and a GAP value to represent insertion, deletion but also missing data: ambiguous residues and non natural amino acids.
+Each residue is encoded as an integer number, this allows fast indexing operation using Residues of probability or frequency matrices.
 
-**MIToS** design is created around the `Residue` bitstype.
-This type is used for encode the 20 amino acid residues and one gap character `GAP` as integers.
-This is useful for faster indexing of the probabilities and counts matrices.
+**Residue creation and conversion**
 
-Residue creation and conversion
--------------------------------
-Creation of `Residue`s and `convert` should be treated carefully.
-`Residue` is encoded as an 8 bits type similar to `Int8`.
-In order to get faster indexing using `Int(x::Residue)` conversion to and from `Int`.
-`Int8` and other signed integers returns the encoded integer value.
-But conversions to and from `Char`s and `Uint8` (for conversion from and to `ASCIIString`s using `Residue()` and `ascii()`)
-are useful for IO using the character representation. The residues are encoded in the following way:
-```
-julia> for char in "ARNDCQEGHILKMFPSTWYV-"
-           println(string(char, " ", Int(Residue(char))))
+Creation and `convert`ion of `Residue`s should be treated carefully.
+`Residue` is encoded as an 8 bits type similar to `Int8`, to get faster indexing using `Int(x::Residue)`.
+In this way, `Int`, `Int8` and other signed integers returns the integer value encoded by the residue.
+Conversions to and from `Char`s and `Uint8` are different, to use the `Char`acter representation in IO operations.
+
+```julia
+
+julia> alanine = Residue('A')
+A
+
+julia> Int(alanine)
+1
+
+julia> Char(alanine)
+'A'
+
+julia> UInt8(alanine) # 0x41 == 65 == 'A'
+0x41
+
+julia> for residue in res"ARNDCQEGHILKMFPSTWYV-"
+           println(residue, " ", Int(residue))
        end
 A 1
 R 2
@@ -46,6 +55,7 @@ W 18
 Y 19
 V 20
 - 21
+
 ```
 """
 bitstype 8 Residue
@@ -81,7 +91,8 @@ const GAP = Residue(21)
 # Conversions for input and output.
 # Inserts (lowercase and dots) and invalid characters will be converted into gaps ('-').
 
-const _to_char  = Char['A','R','N','D','C','Q','E','G','H','I','L','K','M','F','P','S','T','W','Y','V','-']
+const _to_char  = Char['A','R','N','D','C','Q','E','G','H','I','L',
+                       'K','M','F','P','S','T','W','Y','V','-']
 
 convert(::Type{Char}, x::Residue) = _to_char[ Int( x ) ]
 
@@ -92,7 +103,7 @@ convert(::Type{UInt8}, x::Residue) = _to_uint8[ Int( x ) ]
 const _to_residue = fill(GAP,256)
 
 for i in 1:length( _to_char )
-  _to_residue[ Int(_to_char[i]) ] = Residue(i)
+    _to_residue[ Int(_to_char[i]) ] = Residue(i)
 end
 
 convert(::Type{Residue}, x::UInt8) = _to_residue[ Int(x) ];
@@ -105,40 +116,46 @@ convert(::Type{Residue}, x::Char)  = _to_residue[ Int(x) ];
 
 convert(::Type{Residue}, str::ASCIIString) = Residue[ Residue(char) for char in str.data ]
 convert(::Type{Residue}, str::Vector{UInt8}) = convert(Vector{Residue}, str)
-convert(::Type{ASCIIString}, seq::AbstractVector{Residue}) = ASCIIString( UInt8[ UInt8(res) for res in seq ] )
+convert(::Type{ASCIIString}, seq::AbstractVector{Residue}) = ASCIIString(
+    UInt8[ UInt8(res) for res in seq ] )
 
 string(seq::AbstractVector{Residue}) = ascii(seq) # "AR..." instead of the standar "[A,R,..."
 
 # For convert a MSA stored as Vector{ASCIIString} to Matrix{Residue}
 function convert(::Type{Matrix{Residue}}, sequences::Array{ASCIIString,1})
-  nseq = length(sequences)
-  nres = length(sequences[1])
-  aln = Array(Residue,nres,nseq)
-  for col in 1:nseq
-    seq = sequences[col].data
-    if length(seq) == nres
-      aln[:,col] = Residue( seq )
-    else
-      throw(ErrorException("There is an aligned sequence with different number of columns [ $(length(seq)) != $(nres) ]: $(ascii(seq))"))
+    nseq = length(sequences)
+    nres = length(sequences[1])
+    aln = Array(Residue,nres,nseq)
+    for col in 1:nseq
+        seq = sequences[col].data
+        if length(seq) == nres
+            aln[:,col] = Residue( seq )
+        else
+            throw(ErrorException(
+            "There is an aligned sequence with different number of columns [ $(length(seq)) != $(nres) ]: $(ascii(seq))"
+            ))
+        end
     end
-  end
-  aln'
+    aln'
 end
 
 """
-`@res_str` can be used for easy creation of `Vector{Residue}`
-```
-julia> res"MYSEQ"
+The MIToS macro `@res_str` takes a string and returns a `Vector` of `Residues` (sequence).
+
+```julia
+
+julia> res"MIToS"
 5-element Array{MIToS.MSA.Residue,1}:
  M
- Y
+ I
+ T
+ -
  S
- E
- Q
+
 ```
 """
 macro res_str(str)
-  Residue(str)
+    Residue(str)
 end
 
 # Show
@@ -150,7 +167,7 @@ show(io::IO, x::Residue) = write(io, convert(Char, x))
 # -----------
 
 for fun in [:(==), :(!=), :(.==)] # , :(<), :(<=)
-  @eval $(fun)(x::Residue,y::Residue) = $(fun)(Int8(x), Int8(y))
+    @eval $(fun)(x::Residue,y::Residue) = $(fun)(Int8(x), Int8(y))
 end
 
 length(x::Residue) = length(UInt8(x))
@@ -158,5 +175,21 @@ length(x::Residue) = length(UInt8(x))
 # Random
 # ------
 
-"""rand random chooses from the 20 residues, doesn't generate gaps"""
+"""
+It chooses from the 20 natural residues (it doesn't generate gaps).
+
+```julia
+
+julia> rand(Residue)
+T
+
+julia> rand(Residue, 4, 4)
+4x4 Array{MIToS.MSA.Residue,2}:
+ L  E  F  L
+ R  Y  L  K
+ K  V  S  G
+ Q  V  M  T
+
+```
+"""
 rand(r, ::Type{Residue}) = Residue( rand(r, Int8(1):Int8(20)) )

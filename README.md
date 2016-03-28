@@ -9,6 +9,8 @@ Windows: [![Build status](https://ci.appveyor.com/api/projects/status/h6o72b5dtd
 
 Code Coverage: [![Coverage Status](https://coveralls.io/repos/diegozea/MIToS.jl/badge.svg?branch=master&service=github)](https://coveralls.io/github/diegozea/MIToS.jl?branch=master) [![codecov.io](http://codecov.io/github/diegozea/MIToS.jl/coverage.svg?branch=master)](http://codecov.io/github/diegozea/MIToS.jl?branch=master)
 
+[**Documentation**](http://diegozea.github.io/MIToS.jl/) (for the master branch) : [http://diegozea.github.io/MIToS.jl/](http://diegozea.github.io/MIToS.jl/)
+
 MIToS is an environment for Mutual Information (MI) analysis and implements several useful tools for Multiple Sequence Alignments (MSAs) and PDB structures management in the Julia language. MI allows determining covariation between positions in a MSA. MI derived scores are good predictors of residue contacts and functional sites in proteins [1,2].
 
 MIToS starting point was an improvement of the algorithm published by Buslje et. al. [1]. A BLOSUM62-based pseudocount strategy, similar to Altschul et. al. [3], was implemented for a better performance in the range of MSAs with low number of sequences. **MIToS** offers all the necessary tools for using, developing and testing MI based scores, in different modules:
@@ -18,7 +20,8 @@ MIToS starting point was an improvement of the algorithm published by Buslje et.
   * `Annotations` can store the sequence and column mapping after operations like `gapstrip!` or `adjustreference!`.
   * Read and write `FASTA`, `Stockholm` or `Raw` formats.
   * Functions for shuffling the MSA: `shuffle_...`
-* **Clustering** defines a `Clusters` type with the clusters information of the sequences in an MSA. `hobohmI` implements Hobohm I algorithm [4] and gives sequence weights according to the number of sequences in the clusters.
+  * Defines a `Clusters` type for the sequence clustering information of a MSA.
+    * `hobohmI` implements the Hobohm I algorithm [4] and gives sequence weights according to the number of sequences in each clusters.
 * **PDB** defines functions for parsing and working with `PDBFile` and `PDBML` formats:
   * Defines the types: `PDBResidue`, `PDBResidueIdentifier`, `PDBAtom`, `Coordinates`
   * Functions for estimation of `distance` , `contact` between `PDBResidue`s and type of interactions as: `vanderwaals`, `ionic`, etc.

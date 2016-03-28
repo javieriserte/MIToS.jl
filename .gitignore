@@ -1,9 +1,17 @@
 *.jl.cov
 *.jl.mem
 
-# IJulia notebook checkpoints
+# IJulia notebook:
 .ipynb_checkpoints
-/cookbook/*.gz
+
+/cookbook/*.*
+!/cookbook/*.ipynb
+
+/docs/*.*
+!/docs/*.ipynb
+!/docs/docs.js
+!/docs/compile.jl
 
 # vim temporary files
 *~
+

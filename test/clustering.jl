@@ -1,5 +1,4 @@
 # using Base.Test
-# using MIToS.Clustering
 # using MIToS.MSA
 
 println("""
@@ -20,18 +19,18 @@ print("""
 
 @test_throws ErrorException percentidentity(res"AH", res"AGH")
 
-@test percentidentity(res"AH", res"AH") == 1.
-@test percentidentity(res"AH", res"AG") == .5
+@test percentidentity(res"AH", res"AH") == 100.
+@test percentidentity(res"AH", res"AG") == 50.
 @test percentidentity(res"AH", res"RG") == 0.
-@test percentidentity(res"AH-", res"AG-") == .5
-@test percentidentity(res"A--", res"AG-") == .5
+@test percentidentity(res"AH-", res"AG-") == 50.
+@test percentidentity(res"A--", res"AG-") == 50.
 
 print("""
 -> Bool
 """)
 
-@test percentidentity(res"A--", res"AG-", 0.4)
-@test !percentidentity(res"A--", res"AG-", 0.6)
+@test percentidentity(res"A--", res"AG-", 40.)
+@test !percentidentity(res"A--", res"AG-", 60)
 
 print("""
 
@@ -47,9 +46,9 @@ Hobohm I
 # DAYCMT  33.3  83.3
 
 let fasta = read(joinpath(pwd(), "data", "Gaoetal2011.fasta"), FASTA)
-  clusters = hobohmI(fasta, 0.62)
+  clusters = hobohmI(fasta, 62)
 
-  @test getnclusters(clusters) == 2
+  @test nclusters(clusters) == 2
   @test nsequences(clusters) == 6
   @test getweight(clusters, 1) == 1/3
   @test getweight(clusters, 6) == 1/3
@@ -90,4 +89,13 @@ let aln = read(joinpath(pwd(), "data", "gaps.txt"), Raw)
   @test id[1,2] == 90.0
   @test id[1,3] == 80.0
   @test_approx_eq id[2,3] 800/9
+end
+
+let msa = vcat( transpose(res"--GGG-"),
+                transpose(res"---GGG") )
+#                  identities 000110 sum 2
+#            aligned residues 001111 sum 4
+
+    @test percentidentity(msa)[1, 2] == 50.0 # 2 / 4
+    @test meanpercentidentity(msa)   == 50.0
 end

@@ -231,13 +231,13 @@ let aln = Residue[ 'R' 'A'
   r_std = 0.5 * ( sqrt((mi[1,2]-r_mean)^2) + sqrt((other_mi[1,2]-r_mean)^2) )
 
   results = buslje09(aln, lambda=0.05, clustering=false, apc=false, samples=100)
-  @test_approx_eq_eps results[MIToS_ZSCORE][1,2] ((mi[1,2] - r_mean) / r_std) 0.5
+  @test_approx_eq_eps results[MIToS_ZSCORE][1,2] ((mi[1,2] - r_mean) / r_std) 0.55
 
   results = buslje09(aln, lambda=0.05, clustering=false, apc=false, samples=1000)
-  @test_approx_eq_eps results[MIToS_ZSCORE][1,2] ((mi[1,2] - r_mean) / r_std) 0.1
+  @test_approx_eq_eps results[MIToS_ZSCORE][1,2] ((mi[1,2] - r_mean) / r_std) 0.15
 
   results = buslje09(aln, lambda=0.05, clustering=false, apc=false, samples=10000)
-  @test_approx_eq_eps results[MIToS_ZSCORE][1,2] ((mi[1,2] - r_mean) / r_std) 0.05
+  @test_approx_eq_eps results[MIToS_ZSCORE][1,2] ((mi[1,2] - r_mean) / r_std) 0.055
 
   @test aln == Residue[ 'R' 'A'
                         'A' 'R' ]
@@ -361,7 +361,7 @@ let file = joinpath(pwd(), "data", "simple.fasta"),
     mat = [ 0. 0.
             0. 0. ]
 
-  (gu, gi) = pairwisegappercentage(file, FASTA)
+  (gu, gi) = pairwisegapfraction(file, FASTA)
 
   @test gu == mat
   @test gi == mat
@@ -369,19 +369,19 @@ end
 
 let file = joinpath(pwd(), "data", "gaps.txt")
 
-  gu, gi = pairwisegappercentage(file, Raw)
-  cl = hobohmI(read(file, Raw), 0.62)
-  ncl = getnclusters(cl)
+  gu, gi = pairwisegapfraction(file, Raw)
+  cl = hobohmI(read(file, Raw), 62)
+  ncl = nclusters(cl)
 
   @test_approx_eq gu[1, 1] 0.0
   @test_approx_eq gi[1, 1] 0.0
 
-  @test_approx_eq gu[1, 2] getweight(cl, 10)/ncl
+  @test_approx_eq gu[1, 2] 100.0 * getweight(cl, 10)/ncl
   @test_approx_eq gi[1, 2] 0.0
 
-  @test_approx_eq gu[10, 9] (ncl - getweight(cl, 1))/ncl
-  @test_approx_eq gi[10, 9] (ncl - getweight(cl, 1) - getweight(cl, 2))/ncl
+  @test_approx_eq gu[10, 9] 100.0 * (ncl - getweight(cl, 1))/ncl
+  @test_approx_eq gi[10, 9] 100.0 * (ncl - getweight(cl, 1) - getweight(cl, 2))/ncl
 
-  @test_approx_eq gu[10, 10] (ncl - getweight(cl, 1))/ncl
-  @test_approx_eq gu[10, 10] (ncl - getweight(cl, 1))/ncl
+  @test_approx_eq gu[10, 10] 100.0 * (ncl - getweight(cl, 1))/ncl
+  @test_approx_eq gu[10, 10] 100.0 * (ncl - getweight(cl, 1))/ncl
 end

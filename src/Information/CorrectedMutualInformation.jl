@@ -11,10 +11,10 @@ function _buslje09(aln, usegap, clusters, lambda, apc)
 end
 
 function _buslje09(aln::Matrix{Residue}; lambda::Float64=0.05,
-                               clustering::Bool=true, threshold::Float64=0.62,
+                               clustering::Bool=true, threshold=62,
                                maxgap::Float64=0.5, apc::Bool=true, samples::Int=100,
                                usegap::Bool=false, fixedgaps::Bool=true)
-  used = gappercentage(aln,1) .<= maxgap
+  used = gapfraction(aln,1) .<= maxgap
   ncol = ncolumns(aln)
   aln = filtercolumns(aln, used)
   clusters = clustering ? hobohmI(aln, threshold) : NoClustering()
@@ -38,20 +38,23 @@ Calculates a Z score and a corrected MI/MIp as described on **Busjle et. al. 200
 
 Argument, type, default value and descriptions:
 
+```
   - lambda      Float64   0.05    Low count value
   - clustering  Bool      true    Sequence clustering (Hobohm I)
-  - threshold   Float64   0.62    Percent identity threshold for clustering
+  - threshold             62      Percent identity threshold for clustering
   - maxgap      Float64   0.5     Maximum fraction of gaps in positions included in calculation
   - apc         Bool      true    Use APC correction (MIp)
   - usegap      Bool      false   Use gaps on statistics
   - samples     Int       100     Number of samples for Z-score
   - fixedgaps   Bool      true    Fix gaps positions for the random samples
-
+```
 
 This function returns:
 
+```
   - Z score
   - MI or MIp
+```
 """
 function buslje09(aln::Matrix{Residue}; kargs...)
   zscore, mi, used = _buslje09(aln; kargs...)
@@ -90,14 +93,14 @@ function _BLMI(aln, clusters, alpha, beta, apc, lambda::Float64=zero(Float64))
   mi
 end
 
-function _BLMI(aln::Matrix{Residue}; beta::Float64=4.6, threshold::Float64=0.62,
-                                     maxgap::Float64=0.5, apc::Bool=true, samples::Int=100,
+function _BLMI(aln::Matrix{Residue}; beta::Float64=8.512, threshold=62,
+                                     maxgap::Float64=0.5, apc::Bool=true, samples::Int=50,
                                      fixedgaps::Bool=true, lambda::Float64=zero(Float64))
-  used = gappercentage(aln,1) .<= maxgap
+  used = gapfraction(aln,1) .<= maxgap
   ncol = ncolumns(aln)
   aln = filtercolumns(aln, used)
   clusters = hobohmI(aln, threshold)
-  numbercl = getnclusters(clusters)
+  numbercl = nclusters(clusters)
   mi = _BLMI(aln, clusters, numbercl, beta, apc, lambda)
   usedcol = collect(1:ncol)[used]
   if samples > 0
@@ -114,23 +117,26 @@ end
 
 """
 This function takes a MSA or a file and a `Format` as first arguments.
-Calculates a Z score (BLMI) and a corrected MI/MIp as described on **Busjle et. al. 2009** but using using BLOSUM62 pseudo frequencies instead of a fixed pseudocount.
+Calculates a Z score (ZBLMI) and a corrected MI/MIp as described on **Busjle et. al. 2009** but using using BLOSUM62 pseudo frequencies instead of a fixed pseudocount.
 
 Argument, type, default value and descriptions:
 
-  - beta        Float64   4.6     β for BLOSUM62 pseudo frequencies
+```
+  - beta        Float64   8.512   β for BLOSUM62 pseudo frequencies
   - lambda      Float64   0.0     Low count value
-  - threshold   Float64   0.62    Percent identity threshold for sequence clustering (Hobohm I)
+  - threshold             62      Percent identity threshold for sequence clustering (Hobohm I)
   - maxgap      Float64   0.5     Maximum fraction of gaps in positions included in calculation
   - apc         Bool      true    Use APC correction (MIp)
-  - samples     Int       100     Number of samples for Z-score
+  - samples     Int       50      Number of samples for Z-score
   - fixedgaps   Bool      true    Fix gaps positions for the random samples
-
+```
 
 This function returns:
 
-  - Z score (BLMI)
-  - MI or MIp using BLOSUM62 pseudo frequencies
+```
+  - Z score (ZBLMI)
+  - MI or MIp using BLOSUM62 pseudo frequencies (BLMI/BLMIp)
+```
 """
 function BLMI(aln::Matrix{Residue}; kargs...)
   zscore, mi, used = _BLMI(aln; kargs...)
@@ -161,7 +167,7 @@ end
 # MIToS Pairwise Gap Percentage
 # =============================
 
-function _pairwisegappercentage(aln::Matrix{Residue}; clustering::Bool=true, threshold::Float64=0.62)
+function _pairwisegapfraction(aln::Matrix{Residue}; clustering::Bool=true, threshold=62)
   ncol = ncolumns(aln)
   clusters = clustering ? hobohmI(aln, threshold) : NoClustering()
   gu = estimateincolumns(aln, ResidueCount{Float64, 2, true}, GapUnionPercentage{Float64}(), zero(AdditiveSmoothing{Float64}), clusters, true)
@@ -177,24 +183,24 @@ Calculates the percentage of gaps on columns pairs (union and intersection) usin
 Argument, type, default value and descriptions:
 
   - clustering  Bool      true    Sequence clustering (Hobohm I)
-  - threshold   Float64   0.62    Percent identity threshold for sequence clustering (Hobohm I)
+  - threshold             62      Percent identity threshold for sequence clustering (Hobohm I)
 
 This function returns:
 
   - pairwise gap percentage (union)
   - pairwise gap percentage (intersection)
 """
-function pairwisegappercentage(aln::Matrix{Residue}; kargs...)
-  gu, gi, used = _pairwisegappercentage(aln; kargs...)
+function pairwisegapfraction(aln::Matrix{Residue}; kargs...)
+  gu, gi, used = _pairwisegapfraction(aln; kargs...)
   labels!(gu, used)
   labels!(gi, used)
   (gu, gi)
 end
 
-pairwisegappercentage(aln::MultipleSequenceAlignment; kargs...) = pairwisegappercentage(aln.msa; kargs...)
+pairwisegapfraction(aln::MultipleSequenceAlignment; kargs...) = pairwisegapfraction(aln.msa; kargs...)
 
-function pairwisegappercentage(aln::AnnotatedMultipleSequenceAlignment; kargs...)
-  gu, gi, used = _pairwisegappercentage(aln.msa; kargs...)
+function pairwisegapfraction(aln::AnnotatedMultipleSequenceAlignment; kargs...)
+  gu, gi, used = _pairwisegapfraction(aln.msa; kargs...)
   if haskey(getannotfile(aln), "ColMap")
     map = getcolumnmapping(aln)
     labels!(gu, map)
@@ -206,9 +212,9 @@ function pairwisegappercentage(aln::AnnotatedMultipleSequenceAlignment; kargs...
   (gu, gi)
 end
 
-function pairwisegappercentage{T <: Format}(filename::AbstractString, format::Type{T}; kargs...)
+function pairwisegapfraction{T <: Format}(filename::AbstractString, format::Type{T}; kargs...)
   aln = read(filename, T, AnnotatedMultipleSequenceAlignment, generatemapping=true)
-  pairwisegappercentage(aln; kargs...)
+  pairwisegapfraction(aln; kargs...)
 end
 
 
