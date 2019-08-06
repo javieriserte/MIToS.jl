@@ -1,42 +1,26 @@
 # Busjle et. al. 2009
 # ===================
 
-function _buslje09(aln, usegap, clusters, lambda, apc)
-  mi = estimateincolumns(aln, ResidueCount{Float64, 2, usegap}, MutualInformation{Float64}(),
-                         AdditiveSmoothing{Float64}(lambda), clusters, false)
-  if apc
-    APC!(mi)
-  end
-  mi
-end
+const _MI_MAT_TYPE = NamedArray{Float64,2,PairwiseListMatrix{Float64,false,Vector{Float64}},NTuple{2,OrderedDict{String,Int}}}
 
-function _buslje09(aln::Matrix{Residue}; lambda::Float64=0.05,
-                               clustering::Bool=true, threshold=62,
-                               maxgap::Float64=0.5, apc::Bool=true, samples::Int=100,
-                               usegap::Bool=false, fixedgaps::Bool=true)
-  used = gapfraction(aln,1) .<= maxgap
-  ncol = ncolumns(aln)
-  aln = filtercolumns(aln, used)
-  clusters = clustering ? hobohmI(aln, threshold) : NoClustering()
-  mi = _buslje09(aln, usegap, clusters, lambda, apc)
-  usedcol = collect(1:ncol)[used]
-  if samples > 0
-    rand_mi = Array(typeof(mi), samples)
-    for ns in 1:samples
-      fixedgaps ? shuffle_residues_sequencewise!(aln) : shuffle_sequencewise!(aln)
-      rand_mi[ns] = _buslje09(aln, usegap, clusters, lambda, apc)
+function _buslje09(aln, alphabet::A, clusters, lambda, apc) where A
+    mi = mapcolpairfreq!(mutual_information, aln,
+                         Counts{Float64,2,A}(ContingencyTable(Float64,Val{2},alphabet)),
+                         Val{false}, # use diagonal
+                         pseudocounts = AdditiveSmoothing{Float64}(lambda),
+                         weights = clusters,
+                         diagonalvalue = NaN)
+    if apc
+        APC!(mi)
     end
-    return(zscore(rand_mi, mi), mi, usedcol)
-  else
-    return(zeros(mi), mi, usedcol)
-  end
+    mi
 end
 
 """
-This function takes a MSA or a file and a `Format` as first arguments.
-Calculates a Z score and a corrected MI/MIp as described on **Busjle et. al. 2009**
+`buslje09` takes a MSA or a file and a `FileFormat` as first arguments. It calculates a Z score
+and a corrected MI/MIp as described on **Busjle et. al. 2009**.
 
-Argument, type, default value and descriptions:
+keyword argument, type, default value and descriptions:
 
 ```
   - lambda      Float64   0.05    Low count value
@@ -44,9 +28,9 @@ Argument, type, default value and descriptions:
   - threshold             62      Percent identity threshold for clustering
   - maxgap      Float64   0.5     Maximum fraction of gaps in positions included in calculation
   - apc         Bool      true    Use APC correction (MIp)
-  - usegap      Bool      false   Use gaps on statistics
   - samples     Int       100     Number of samples for Z-score
   - fixedgaps   Bool      true    Fix gaps positions for the random samples
+  - alphabet    ResidueAlphabet UngappedAlphabet()  Residue alphabet to be used
 ```
 
 This function returns:
@@ -56,70 +40,63 @@ This function returns:
   - MI or MIp
 ```
 """
-function buslje09(aln::Matrix{Residue}; kargs...)
-  zscore, mi, used = _buslje09(aln; kargs...)
-  labels!(mi, used)
-  labels!(zscore, used)
-  (zscore, mi)
+function buslje09(aln::AbstractMatrix{Residue};
+                  lambda::Float64 = 0.05,
+                  clustering::Bool = true,
+                  threshold = 62,
+                  maxgap::Float64 = 0.5,
+                  apc::Bool = true,
+                  samples::Int = 100,
+                  alphabet::ResidueAlphabet = UngappedAlphabet(),
+                  fixedgaps::Bool = true)::NTuple{2,_MI_MAT_TYPE}
+    aln = filtercolumns(aln, gapfraction(aln,1) .<= maxgap)
+    clusters = clustering ? hobohmI(aln, threshold) : NoClustering()
+    mi = _buslje09(aln, alphabet, clusters, lambda, apc)
+    if samples > 0
+        rand_mi = Array{PairwiseListMatrix{Float64,false,Vector{Float64}}}(undef, samples)
+        zmi = copy(mi)
+        residuematrix = getresidues(aln)
+        for ns in 1:samples
+            shuffle!(residuematrix,1,fixedgaps)
+            rand_mi[ns] = getarray(_buslje09(aln, alphabet, clusters, lambda, apc))
+        end
+        PairwiseListMatrices.zscore!(rand_mi, getarray(zmi))
+        return(zmi, mi)
+    else
+        return(fill!(copy(mi),0.0), mi)
+    end
 end
 
-buslje09(aln::MultipleSequenceAlignment; kargs...) = buslje09(aln.msa; kargs...)
-
-function buslje09(aln::AnnotatedMultipleSequenceAlignment; kargs...)
-  zscore, mi, used = _buslje09(aln.msa; kargs...)
-  if haskey(getannotfile(aln), "ColMap")
-    labels!(mi, getcolumnmapping(aln)[used])
-    labels!(zscore, getcolumnmapping(aln)[used])
-  else
-    labels!(mi, used)
-    labels!(zscore, used)
-  end
-  (zscore, mi)
-end
-
-function buslje09{T <: Format}(filename::AbstractString, format::Type{T}; kargs...)
-  aln = read(filename, T, AnnotatedMultipleSequenceAlignment, generatemapping=true)
-  buslje09(aln; kargs...)
+function buslje09(filename::String, format::Type{T}; kargs...) where T <: FileFormat
+    aln = read(filename, T, AnnotatedMultipleSequenceAlignment, generatemapping=true)
+    buslje09(aln; kargs...)
 end
 
 # MIToS BLMI: Blosum MI
 # =====================
 
-function _BLMI(aln, clusters, alpha, beta, apc, lambda::Float64=zero(Float64))
-  mi = estimateincolumns(aln, Float64, ResidueProbability{Float64, 2, false}, alpha, beta, MutualInformation{Float64}(), AdditiveSmoothing(lambda), clusters, false, 0.0)
-  if apc
-    APC!(mi)
-  end
-  mi
-end
-
-function _BLMI(aln::Matrix{Residue}; beta::Float64=8.512, threshold=62,
-                                     maxgap::Float64=0.5, apc::Bool=true, samples::Int=50,
-                                     fixedgaps::Bool=true, lambda::Float64=zero(Float64))
-  used = gapfraction(aln,1) .<= maxgap
-  ncol = ncolumns(aln)
-  aln = filtercolumns(aln, used)
-  clusters = hobohmI(aln, threshold)
-  numbercl = nclusters(clusters)
-  mi = _BLMI(aln, clusters, numbercl, beta, apc, lambda)
-  usedcol = collect(1:ncol)[used]
-  if samples > 0
-    rand_mi = Array(typeof(mi), samples)
-    for ns in 1:samples
-      fixedgaps ? shuffle_residues_sequencewise!(aln) : shuffle_sequencewise!(aln)
-      rand_mi[ns] = _BLMI(aln, clusters, numbercl, beta, apc, lambda)
+function _BLMI(aln, clusters, alpha, beta, apc, lambda::Float64=0.0)
+    mi = mapcolpairfreq!(mutual_information, aln,
+                         Probabilities{Float64,2,UngappedAlphabet}(
+                            ContingencyTable(Float64,Val{2},UngappedAlphabet())
+                         ),
+                         Val{false}, # use diagonal
+                         pseudocounts = AdditiveSmoothing{Float64}(lambda),
+                         weights = clusters,
+                         diagonalvalue = NaN,
+                         pseudofrequencies=BLOSUM_Pseudofrequencies(alpha,beta))
+    if apc
+        APC!(mi)
     end
-    return(zscore(rand_mi, mi), mi, usedcol)
-  else
-    return(zeros(mi), mi, usedcol)
-  end
+    mi
 end
 
 """
-This function takes a MSA or a file and a `Format` as first arguments.
-Calculates a Z score (ZBLMI) and a corrected MI/MIp as described on **Busjle et. al. 2009** but using using BLOSUM62 pseudo frequencies instead of a fixed pseudocount.
+`BLMI` takes a MSA or a file and a `FileFormat` as first arguments. It calculates a Z score
+(ZBLMI) and a corrected MI/MIp as described on **Busjle et. al. 2009** but using using
+BLOSUM62 pseudo frequencies instead of a fixed pseudocount.
 
-Argument, type, default value and descriptions:
+Keyword argument, type, default value and descriptions:
 
 ```
   - beta        Float64   8.512   β for BLOSUM62 pseudo frequencies
@@ -138,86 +115,34 @@ This function returns:
   - MI or MIp using BLOSUM62 pseudo frequencies (BLMI/BLMIp)
 ```
 """
-function BLMI(aln::Matrix{Residue}; kargs...)
-  zscore, mi, used = _BLMI(aln; kargs...)
-  labels!(mi, used)
-  labels!(zscore, used)
-  (zscore, mi)
+function BLMI(aln::AbstractMatrix{Residue};
+              beta::Float64 = 8.512,
+              threshold = 62,
+              maxgap::Float64 = 0.5,
+              apc::Bool = true,
+              samples::Int = 50,
+              fixedgaps::Bool = true,
+              lambda::Float64 = 0.0)::NTuple{2,_MI_MAT_TYPE}
+    aln = filtercolumns(aln, gapfraction(aln,1) .<= maxgap)
+    clusters = hobohmI(aln, threshold)
+    numbercl = Float64(nclusters(clusters))
+    mi = _BLMI(aln, clusters, numbercl, beta, apc, lambda)
+    if samples > 0
+        rand_mi = Array{PairwiseListMatrix{Float64,false,Vector{Float64}}}(undef, samples)
+        zmi = copy(mi)
+        residuematrix = getresidues(aln)
+        for ns in 1:samples
+            shuffle!(residuematrix,1,fixedgaps)
+            rand_mi[ns] = getarray(_BLMI(aln, clusters, numbercl, beta, apc, lambda))
+        end
+        PairwiseListMatrices.zscore(rand_mi, getarray(zmi))
+        return(zmi, mi)
+    else
+        return(fill!(copy(mi),0.0), mi)
+    end
 end
 
-BLMI(aln::MultipleSequenceAlignment; kargs...) = BLMI(aln.msa; kargs...)
-
-function BLMI(aln::AnnotatedMultipleSequenceAlignment; kargs...)
-  zscore, mi, used = _BLMI(aln.msa; kargs...)
-  if haskey(getannotfile(aln), "ColMap")
-    labels!(mi, getcolumnmapping(aln)[used])
-    labels!(zscore, getcolumnmapping(aln)[used])
-  else
-    labels!(mi, used)
-    labels!(zscore, used)
-  end
-  (zscore, mi)
+function BLMI(filename::String, format::Type{T}; kargs...) where T <: FileFormat
+    aln = read(filename, T, AnnotatedMultipleSequenceAlignment, generatemapping=true)
+    BLMI(aln; kargs...)
 end
-
-function BLMI{T <: Format}(filename::AbstractString, format::Type{T}; kargs...)
-  aln = read(filename, T, AnnotatedMultipleSequenceAlignment, generatemapping=true)
-  BLMI(aln; kargs...)
-end
-
-# MIToS Pairwise Gap Percentage
-# =============================
-
-function _pairwisegapfraction(aln::Matrix{Residue}; clustering::Bool=true, threshold=62)
-  ncol = ncolumns(aln)
-  clusters = clustering ? hobohmI(aln, threshold) : NoClustering()
-  gu = estimateincolumns(aln, ResidueCount{Float64, 2, true}, GapUnionPercentage{Float64}(), zero(AdditiveSmoothing{Float64}), clusters, true)
-  gi = estimateincolumns(aln, ResidueCount{Float64, 2, true}, GapIntersectionPercentage{Float64}(), zero(AdditiveSmoothing{Float64}), clusters, true)
-  usedcol = collect(1:ncol)
-  (gu, gi, usedcol)
-end
-
-"""
-This function takes a MSA or a file and a `Format` as first arguments.
-Calculates the percentage of gaps on columns pairs (union and intersection) using sequence clustering (Hobohm I).
-
-Argument, type, default value and descriptions:
-
-  - clustering  Bool      true    Sequence clustering (Hobohm I)
-  - threshold             62      Percent identity threshold for sequence clustering (Hobohm I)
-
-This function returns:
-
-  - pairwise gap percentage (union)
-  - pairwise gap percentage (intersection)
-"""
-function pairwisegapfraction(aln::Matrix{Residue}; kargs...)
-  gu, gi, used = _pairwisegapfraction(aln; kargs...)
-  labels!(gu, used)
-  labels!(gi, used)
-  (gu, gi)
-end
-
-pairwisegapfraction(aln::MultipleSequenceAlignment; kargs...) = pairwisegapfraction(aln.msa; kargs...)
-
-function pairwisegapfraction(aln::AnnotatedMultipleSequenceAlignment; kargs...)
-  gu, gi, used = _pairwisegapfraction(aln.msa; kargs...)
-  if haskey(getannotfile(aln), "ColMap")
-    map = getcolumnmapping(aln)
-    labels!(gu, map)
-    labels!(gi, map)
-  else
-    labels!(gu, used)
-    labels!(gi, used)
-  end
-  (gu, gi)
-end
-
-function pairwisegapfraction{T <: Format}(filename::AbstractString, format::Type{T}; kargs...)
-  aln = read(filename, T, AnnotatedMultipleSequenceAlignment, generatemapping=true)
-  pairwisegapfraction(aln; kargs...)
-end
-
-
-
-
-

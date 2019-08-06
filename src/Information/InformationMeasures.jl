@@ -1,194 +1,194 @@
-abstract AbstractMeasure{T}
-
-abstract SymmetricMeasure{T} <: AbstractMeasure{T}
-
 # Entropy
 # =======
 
-"""
-Shannon entropy (H)
-"""
-immutable Entropy{T} <: SymmetricMeasure{T}
-  base::T
-end
-
-call{T}(::Type{Entropy{T}}) = Entropy(T(Base.e))
-
-## Estimate Entropy using ResidueProbability
-
-"""
-`estimate(Entropy(base), p)`
-
-`p` should be a `ResidueProbability` table. The result type is determined by `base`.
-"""
-function estimate{B, T, N, UseGap}(measure::Entropy{B}, p::ResidueProbability{T, N, UseGap})
-  H = zero(B)
-  for i in 1:length(p)
-    @inbounds pi = B(p[i])
-    if pi != 0.0
-      H += pi * log(pi)
+function StatsBase.entropy(table::Probabilities{T,N,A}) where {T,N,A}
+    H = zero(T)
+    p = gettablearray(table)
+    @inbounds for pᵢ in p
+        if pᵢ > zero(T)
+            H += pᵢ * log(pᵢ)
+        end
     end
-  end
-  -H/log(measure.base)
+    -H # Default base: e
 end
 
-"""
-`estimate_on_marginal(Entropy{T}(base), p, marginal)`
-
-This function estimate the entropy H(X) if marginal is 1, H(Y) for 2, etc.
-The result type is determined by `base`.
-"""
-function estimate_on_marginal{B, T, N, UseGap}(measure::Entropy{B}, p::ResidueProbability{T, N, UseGap}, marginal::Int)
-  H = zero(B)
-  for i in 1:nresidues(p)
-    @inbounds pi = B(p.marginals[i, marginal])
-    if pi != 0.0
-      H += pi * log(pi)
+function StatsBase.entropy(table::Counts{T,N,A}) where {T,N,A}
+    H = zero(T)
+    total = gettotal(table)
+    n = gettablearray(table)
+    @inbounds for nᵢ in n
+        if nᵢ > zero(T)
+            H += nᵢ * log(nᵢ/total)
+        end
     end
-  end
-  -H/log(measure.base)
+    -H/total # Default base: e
 end
-
-## Estimate Entropy using ResidueCount
 
 """
-`estimate(Entropy{T}(base), n::ResidueCount)`
-
-It's the fastest option (you don't spend time on probability calculations).
-The result type is determined by the `base`.
+It calculates the Shannon entropy (H) from a table of `Counts` or `Probabilities`.
+Use last and optional positional argument to change the base of the log. The default base
+is e, so the result is in nats. You can use 2.0 as base to get the result in bits.
 """
-function estimate{T}(measure::Entropy{T}, n::ResidueCount)
-  H = zero(T)
-  total = T(n.total)
-  for i in 1:length(n)
-    @inbounds ni = T(n[i])
-    if ni != 0.0
-      H += ni * log(ni/total)
-    end
-  end
-  (-H/total)/log(measure.base)
+function StatsBase.entropy(table::Union{Counts{T,N,A},Probabilities{T,N,A}}, base::Real) where {T,N,A}
+    entropy(table) / log(base)
 end
 
-function estimate_on_marginal{T}(measure::Entropy{T}, n::ResidueCount, marginal::Int)
-  H = zero(T)
-  total = T(n.total)
-  for i in 1:nresidues(n)
-    @inbounds ni = T(n.marginals[i, marginal])
-    if ni != 0.0
-      H += ni * log(ni/total)
+# Marginal Entropy
+# ----------------
+
+function marginal_entropy(table::Probabilities{T,N,A}, margin::Int) where {T,N,A}
+    H = zero(T)
+    marginals = getmarginalsarray(table)
+    @inbounds for pi in view(marginals, :, margin)
+        if pi > zero(T)
+            H += pi * log(pi)
+        end
     end
-  end
-  (-H/total)/log(measure.base)
+    -H # Default base: e
 end
+
+function marginal_entropy(table::Counts{T,N,A}, margin::Int) where {T,N,A}
+    H = zero(T)
+    total = gettotal(table)
+    marginals = getmarginalsarray(table)
+    @inbounds for ni in view(marginals, :, margin)
+        if ni > zero(T)
+            H += ni * log(ni/total)
+        end
+    end
+    -H/total # Default base: e
+end
+
+"""
+It calculates marginal entropy (H) from a table of `Counts` or `Probabilities`. The second
+positional argument is used to indicate the magin used to calculate the entropy, e.g. it
+estimates the entropy H(X) if marginal is 1, H(Y) for 2, etc.
+Use last and optional positional argument to change the base of the log. The default base
+is e, so the result is in nats. You can use 2.0 as base to get the result in bits.
+"""
+function marginal_entropy(table::Union{Counts{T,N,A},Probabilities{T,N,A}},
+                          margin::Int, base::Real) where {T,N,A}
+    marginal_entropy(table, margin) / log(base)
+end
+
+# Kullback-Leibler
+# ================
+
+
+function kullback_leibler(probabilities::Probabilities{T,N,A},
+                          background::Array{T,N}) where {T,N,A}
+    p = getcontingencytable(probabilities)
+    @assert size(background)==size(p) "probabilities and background must have the same size."
+    KL = zero(T)
+    @inbounds for i in 1:length(p)
+        pi = p[i]
+        if pi > zero(T)
+            KL += pi * log(pi/background[i])
+        end
+    end
+    KL # Default base: e
+end
+
+function kullback_leibler(probabilities::Probabilities{T,N,A},
+         background::Union{Probabilities{T,N,A},ContingencyTable{T,N,A}}=BLOSUM62_Pi) where {T,N,A}
+    kullback_leibler(probabilities, gettablearray(background))
+end
+
+"""
+It calculates the Kullback-Leibler (KL) divergence from a table of `Probabilities`. The
+second positional argument is a `Probabilities` or `ContingencyTable` with the background
+distribution. It's optional, the default is the `BLOSUM62_Pi` table.
+Use last and optional positional argument to change the base of the log. The default base
+is e, so the result is in nats. You can use 2.0 as base to get the result in bits.
+"""
+kullback_leibler(p::Probabilities{T,1,A}, q, base::Real) where {T,A} = kullback_leibler(p, q)/log(base)
+kullback_leibler(p::Probabilities{T,1,A}, base::Real) where {T,A} = kullback_leibler(p)/log(base)
 
 # Mutual Information
 # ==================
 
-"""
-Mutual Information (MI)
-"""
-immutable MutualInformation{T} <: SymmetricMeasure{T}
-  base::T
+# It avoids ifelse() because log is expensive (https://github.com/JuliaLang/julia/issues/8869)
+@inline function _mi(::Type{T}, pij, pi, pj) where T
+    (pij > zero(T)) && (pi > zero(T)) ? T(pij * log(pij/(pi*pj))) : zero(T)
 end
 
-call{T}(::Type{MutualInformation{T}}) = MutualInformation(T(Base.e))
-
-@inline _mi{T}(::Type{T}, pij, pi, pj) = ifelse(pij > zero(T) && pi > zero(T), T(pij * log(pij/(pi*pj))), zero(T))
-
-"""
-`estimate(MutualInformation(), pxy::ResidueProbability [, base])`
-
-Calculate Mutual Information from `ResidueProbability`. The result type is determined by `base`.
-"""
-function estimate{B, T, UseGap}(measure::MutualInformation{B}, pxy::ResidueProbability{T, 2,UseGap})
-  MI = zero(B)
-  marginals = pxy.marginals
-  @inbounds for j in 1:nresidues(pxy)
-    pj = marginals[j,2]
-    if pj > 0.0
-      @inbounds @simd for i in 1:nresidues(pxy)
-        MI +=  _mi(B, pxy[i,j], marginals[i,1], pj)
-      end
+function mutual_information(table::Probabilities{T,2,A}) where {T,A}
+    MI = zero(T)
+    marginals = getmarginalsarray(table)
+    p = gettablearray(table)
+    N = size(marginals,1)
+    @inbounds for j in 1:N
+        pj = marginals[j,2]
+        if pj > zero(T)
+            @inbounds @simd for i in 1:N
+                MI += _mi(T, p[i,j], marginals[i,1], pj)
+            end
+        end
     end
-  end
-  MI/log(measure.base)
+    MI # Default base: e
 end
 
-@inline _mi{T}(N::T, nij, ni, nj) = ifelse(nij > zero(T) && ni > zero(T), T(nij * log((N * nij)/(ni * nj))), zero(T))
+# It avoids ifelse() because log is expensive (https://github.com/JuliaLang/julia/issues/8869)
+@inline function _mi(total::T, nij, ni, nj) where T
+    (nij > zero(T)) && (ni > zero(T)) ? T(nij * log((total * nij)/(ni * nj))) : zero(T)
+end
 
-"""
-`estimate(MutualInformation(), pxy::ResidueCount [, base])`
-
-Calculate Mutual Information from `ResidueCount`. The result type is determined by the `base`.
-It's the fastest option (you don't spend time on probability calculations).
-"""
-function estimate{B, T, UseGap}(measure::MutualInformation{B}, nxy::ResidueCount{T, 2,UseGap})
-  MI = zero(B)
-  N = B(nxy.total)
-  marginals = nxy.marginals
-  @inbounds for j in 1:nresidues(nxy)
-    nj = marginals[j,2]
-    if nj > 0.0
-      @inbounds @simd for i in 1:nresidues(nxy)
-        MI += _mi(N, nxy[i,j], marginals[i,1], nj)
-      end
+function mutual_information(table::Counts{T,2,A}) where {T,A}
+    MI = zero(T)
+    marginals = getmarginalsarray(table)
+    n = gettablearray(table)
+    total = gettotal(table)
+    N = size(marginals,1)
+    @inbounds for j in 1:N
+        nj = marginals[j,2]
+        if nj > zero(T)
+            @inbounds @simd for i in 1:N
+                MI += _mi(total, n[i,j], marginals[i,1], nj)
+            end
+        end
     end
-  end
-  (MI/N)/log(measure.base)
+    MI/total # Default base: e
 end
 
-function estimate{B, T, UseGap}(measure::MutualInformation{B}, pxyz::ResidueContingencyTables{T, 3, UseGap})
-  pxy = delete_dimensions(pxyz,3)
-  return( estimate_on_marginal(Entropy(measure.base), pxyz, 1) + # H(X)
-  estimate_on_marginal(Entropy(measure.base), pxyz ,2) + # H(Y)
-  estimate_on_marginal(Entropy(measure.base), pxyz, 3) - # H(Z)
-  estimate(Entropy(measure.base), pxy) - # H(X, Y)
-  estimate(Entropy(measure.base), delete_dimensions!(pxy, pxyz, 2)) - # H(X, Z)
-  estimate(Entropy(measure.base), delete_dimensions!(pxy, pxyz, 1)) + # H(Y, Z)
-  estimate(Entropy(measure.base), pxyz) ) # H(X, Y, Z)
+"""
+It calculates Mutual Information (MI) from a table of `Counts` or `Probabilities`.
+Use last and optional positional argument to change the base of the log. The default base
+is e, so the result is in nats. You can use 2.0 as base to get the result in bits.
+Calculation of MI from `Counts` is faster than from `Probabilities`.
+"""
+function mutual_information(table::Union{Counts{T,N,A}, Probabilities{T,N,A}},
+                            base::Real) where {T,N,A}
+    mutual_information(table) / log(base)
+end
+
+function mutual_information(pxyz::Union{Counts{T,3,A}, Probabilities{T,3,A}}) where {T,A}
+    pxy = delete_dimensions(pxyz, 3)
+    return(
+        marginal_entropy(pxyz, 1) +                 # H(X) +
+        marginal_entropy(pxyz, 2) +                 # H(Y) +
+        marginal_entropy(pxyz, 3) -                 # H(Z) -
+        entropy(pxy) -                              # H(X,Y) -
+        entropy(delete_dimensions!(pxy, pxyz, 2)) - # H(X,Z) -
+        entropy(delete_dimensions!(pxy, pxyz, 2)) + # H(Y,Z) +
+        entropy(pxyz)                               # H(X,Y,Z)
+    )
 end
 
 # Normalized Mutual Information by Entropy
-# ========================================
+# ----------------------------------------
 
 """
-Normalized Mutual Information (nMI) by Entropy.
+It calculates a Normalized Mutual Information (nMI) by Entropy from a table of `Counts` or
+`Probabilities`.
 
 `nMI(X, Y) = MI(X, Y) / H(X, Y)`
 """
-immutable MutualInformationOverEntropy{T} <: SymmetricMeasure{T}
-  base::T
-end
-
-call{T}(::Type{MutualInformationOverEntropy{T}}) = MutualInformationOverEntropy(T(Base.e))
-
-function estimate{B}(measure::MutualInformationOverEntropy{B}, table)
-  H = estimate(Entropy(measure.base), table)
-  if H != zero(B)
-    MI = estimate(MutualInformation(measure.base), table)
-    return(MI/H)
-  else
-    return(zero(B))
-  end
-end
-
-# Pairwise Gap Percentage
-# =======================
-
-"""
-`GapUnionPercentage`
-"""
-immutable GapUnionPercentage{T} <: SymmetricMeasure{T} end
-
-"""
-`GapIntersectionPercentage`
-"""
-immutable GapIntersectionPercentage{T} <: SymmetricMeasure{T} end
-
-function estimate{B, T}(measure::GapIntersectionPercentage{B}, nxy::ResidueCount{T, 2, true})
-  B(100.0) * B(nxy[21, 21]) / B(sum(nxy))
-end
-
-function estimate{B, T}(measure::GapUnionPercentage{B}, nxy::ResidueCount{T, 2, true})
-  B(100.0) * B(nxy.marginals[21, 1] + nxy.marginals[21, 2] - nxy[21, 21]) / B(sum(nxy))
+function normalized_mutual_information(table::Union{Counts{T,N,A},Probabilities{T,N,A}}) where {T,N,A}
+    H = entropy(table)
+    if H != zero(T)
+        MI = mutual_information(table)
+        return(T(MI/H))
+    else
+        return(zero(T))
+    end
 end

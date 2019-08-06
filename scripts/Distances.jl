@@ -1,5 +1,8 @@
 #!/usr/bin/env julia
 
+using Pkg
+using Dates
+using Distributed
 using MIToS.Utils.Scripts
 
 Args = parse_commandline(
@@ -7,37 +10,37 @@ Args = parse_commandline(
     ["--distance", "-d"],
     Dict(
         :help => "The distance to be calculated, options: All, Heavy, CA, CB",
-        :arg_type => ASCIIString,
+        :arg_type => String,
         :default => "All"
     ),
     ["--format", "-f"],
     Dict(
         :help => "Format of the PDB file: It should be PDBFile or PDBML",
-        :arg_type => ASCIIString,
+        :arg_type => String,
         :default => "PDBFile"
     ),
     ["--model", "-m"],
     Dict(
-        :help => "The model to be used, * for all",
-        :arg_type => ASCIIString,
+        :help => "The model to be used, use All for all",
+        :arg_type => String,
         :default => "1"
     ),
     ["--chain", "-c"],
     Dict(
-        :help => "The chain to be used, * for all",
-        :arg_type => ASCIIString,
-        :default => "*"
+        :help => "The chain to be used, use All for all",
+        :arg_type => String,
+        :default => "All"
     ),
     ["--group", "-g"],
     Dict(
-        :help => "Group of atoms to be used, should be ATOM, HETATM or * for all",
-        :arg_type => ASCIIString,
-        :default => "*"
+        :help => "Group of atoms to be used, should be ATOM, HETATM or All for all",
+        :arg_type => String,
+        :default => "All"
     ),
-    ["--intra", "-i"],
+    ["--inter", "-i"],
     Dict(
-        :help => "Only intra chain distances",
-        :action => :store_false
+        :help => "Calculate inter chain distances",
+        :action => :store_true
     ),
     # Keywords...
     description="""
@@ -51,7 +54,7 @@ set_parallel(Args["parallel"])
 
 @everywhere begin
 
-    const args = remotecall_fetch(1,()->Args)
+    const args = remotecall_fetch(()->Args,1)
 
     import MIToS.Utils.Scripts: script
 
@@ -63,30 +66,32 @@ set_parallel(Args["parallel"])
                     args,
                     fh_out::Union{Base.LibuvStream, IO})
         # TO DO ------------------------------------------------------------------
-        println(fh_out, "# MIToS ", Pkg.installed("MIToS"), " Distances.jl ", now())
+        println(fh_out, "# MIToS ", Pkg.installed()["MIToS"], " Distances.jl ", now())
         println(fh_out, "# used arguments:")
         for (key, value) in args
             println(fh_out, "# \t", key, "\t\t", value)
         end
         println(fh_out, "model_i,chain_i,group_i,pdbe_i,number_i,name_i,model_j,chain_j,group_j,pdbe_j,number_j,name_j,distance")
-        dtyp = ascii(args["distance"])
-        form = ascii(args["format"])
-        dump(input)
+        dtyp = string(args["distance"])
+        form = string(args["format"])
         if form == "PDBFile"
-            res = read(input, PDBFile)
+            res = readorparse(input, PDBFile)
         elseif form == "PDBML"
-            res = read(input, PDBML)
+            res = readorparse(input, PDBML)
         else
             throw(ErrorException("--format should be PDBFile or PDBML."))
         end
-        res = residues(res, ascii(args["model"]), ascii(args["chain"]), ascii(args["group"]), "*")
+        model_arg = string(args["model"]) == "All" ? All : string(args["model"])
+        chain_arg = string(args["chain"]) == "All" ? All : string(args["chain"])
+        group_arg = string(args["group"]) == "All" ? All : string(args["group"])
+        res = residues(res, model_arg, chain_arg, group_arg, All)
         N = length(res)
-        intra = Bool(args["intra"])
+        inter = !Bool(args["inter"])
         for i in 1:(N-1)
             for j in (i+1):N
                 @inbounds res1 = res[i]
                 @inbounds res2 = res[j]
-                if intra && res1.id.chain != res2.id.chain
+                if inter && res1.id.chain != res2.id.chain
                     continue
                 end
                 dist = distance(res1, res2, criteria=dtyp)

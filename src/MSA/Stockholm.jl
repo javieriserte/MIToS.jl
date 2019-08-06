@@ -1,50 +1,66 @@
-immutable Stockholm <: Format end
+struct Stockholm <: FileFormat end
 
-function _fill_with_line!(line, IDS, SEQS, GF, GS, GC, GR)
-    if line[1:4] == "#=GF"
-        words = get_n_words(line,3)
+@inline function _fill_with_sequence_line!(IDS, SEQS, line)
+    if !startswith(line,'#') && !startswith(line,"//")
+        words = get_n_words(line, 2)
+        @inbounds id = words[1]
+        if id in IDS
+            # It's useful when sequences are split into several lines
+            # It can be a problem with duplicated IDs
+            i = something(findfirst(isequal(id), IDS), 0)
+            SEQS[i] = SEQS[i] * words[2]
+        else
+            push!(IDS, id)
+            push!(SEQS, words[2])
+        end
+    end
+end
+
+function _fill_with_line!(IDS, SEQS, GF, GS, GC, GR, line)
+    if startswith(line,"#=GF")
+        words = get_n_words(line, 3)
         id = words[2]
         if id in keys(GF)
             GF[ id ] = GF[ id ] * "\n" * words[3]
         else
             GF[ id ] = words[3]
         end
-    elseif line[1:4] == "#=GS"
-        words = get_n_words(line,4)
+    elseif startswith(line,"#=GS")
+        words = get_n_words(line, 4)
         idtuple = (words[2],words[3])
         if idtuple in keys(GS)
             GS[ idtuple ] = GS[ idtuple ] * "\n" * words[4]
         else
             GS[ idtuple ] = words[4]
         end
-    elseif line[1:4] == "#=GC"
-        words = get_n_words(line,3)
+    elseif startswith(line,"#=GC")
+        words = get_n_words(line, 3)
         GC[words[2]] = words[3]
-    elseif line[1:4] == "#=GR"
-        words = get_n_words(line,4)
+    elseif startswith(line,"#=GR")
+        words = get_n_words(line, 4)
         GR[(words[2],words[3])] = words[4]
-    elseif line[1:1] != "#"
-        words = get_n_words(line,2)
-        push!(IDS, words[1])
-        push!(SEQS,words[2])
+    else
+        _fill_with_sequence_line!(IDS, SEQS, line)
     end
 end
 
 function _pre_readstockholm(io::Union{IO, AbstractString})
-    IDS  = ASCIIString[]
-    SEQS = ASCIIString[]
-    GF = OrderedDict{ASCIIString,ByteString}()
-    GC = Dict{ASCIIString,ASCIIString}()
-    GS = Dict{Tuple{ASCIIString,ASCIIString},ASCIIString}()
-    GR = Dict{Tuple{ASCIIString,ASCIIString},ASCIIString}()
+    IDS  = OrderedSet{String}()
+    SEQS = String[]
+    GF = OrderedDict{String,String}()
+    GC = Dict{String,String}()
+    GS = Dict{Tuple{String,String},String}()
+    GR = Dict{Tuple{String,String},String}()
 
-    for line in eachline(io)
-        if length(line) >= 4
-            _fill_with_line!(line, IDS, SEQS, GF, GS, GC, GR)
+    @inbounds for line::String in lineiterator(io)
+        _fill_with_line!(IDS, SEQS, GF, GS, GC, GR, line)
+        if startswith(line, "//")
+           break
         end
     end
 
-    #GF = sizehint!(GF, length(GF))
+    _check_seq_len(IDS, SEQS)
+
     GF = sizehint!(GF, length(GF))
     GC = sizehint!(GC, length(GC))
     GS = sizehint!(GS, length(GS))
@@ -52,84 +68,104 @@ function _pre_readstockholm(io::Union{IO, AbstractString})
     (IDS, SEQS, GF, GS, GC, GR)
 end
 
-function parse(io::Union{IO, AbstractString}, format::Type{Stockholm},
-               output::Type{AnnotatedMultipleSequenceAlignment}; generatemapping::Bool=false,
-               useidcoordinates::Bool=false, deletefullgaps::Bool=true, checkalphabet::Bool=false)
+function _pre_readstockholm_sequences(io::Union{IO, AbstractString})
+    IDS  = OrderedSet{String}()
+    SEQS = String[]
+    @inbounds for line::String in lineiterator(io)
+        _fill_with_sequence_line!(IDS, SEQS, line)
+        if startswith(line, "//")
+           break
+        end
+    end
+    _check_seq_len(IDS, SEQS)
+    (IDS, SEQS)
+end
+
+function Base.parse(io::Union{IO, AbstractString},
+                   format::Type{Stockholm},
+                   output::Type{AnnotatedMultipleSequenceAlignment};
+                   generatemapping::Bool=false,
+                   useidcoordinates::Bool=false,
+                   deletefullgaps::Bool=true,
+                   keepinserts::Bool=false)::AnnotatedMultipleSequenceAlignment
     IDS, SEQS, GF, GS, GC, GR = _pre_readstockholm(io)
     annot = Annotations(GF, GS, GC, GR)
-    if generatemapping
-        MSA, MAP = useidcoordinates && hascoordinates(IDS[1]) ? _to_msa_mapping(SEQS, IDS) : _to_msa_mapping(SEQS)
-        setannotfile!(annot, "NCol", string(size(MSA,2)))
-        setannotfile!(annot, "ColMap", join(vcat(1:size(MSA,2)), ','))
-        for i in 1:length(IDS)
-            setannotsequence!(annot, IDS[i], "SeqMap", MAP[i])
-        end
-    else
-        MSA = convert(Matrix{Residue}, SEQS)
-    end
-    msa = AnnotatedMultipleSequenceAlignment(IndexedArray(IDS), MSA, annot)
-    if checkalphabet
-        deletenotalphabetsequences!(msa, SEQS)
-    end
+    _generate_annotated_msa(annot, collect(IDS), SEQS, keepinserts,
+                            generatemapping, useidcoordinates, deletefullgaps)
+end
+
+function Base.parse(io::Union{IO, AbstractString},
+                   format::Type{Stockholm},
+                   output::Type{NamedResidueMatrix{Array{Residue,2}}};
+                   deletefullgaps::Bool=true)::NamedResidueMatrix{Array{Residue,2}}
+    IDS, SEQS = _pre_readstockholm_sequences(io)
+    msa = _generate_named_array(SEQS, IDS)
     if deletefullgaps
-        deletefullgapcolumns!(msa)
+        return deletefullgapcolumns(msa)
     end
     msa
 end
 
-function parse(io::Union{IO, AbstractString}, format::Type{Stockholm}, output::Type{MultipleSequenceAlignment}; deletefullgaps::Bool=true, checkalphabet::Bool=false)
-    # Could be faster with a special _pre_readstockholm
-    IDS, SEQS, GF, GS, GC, GR = _pre_readstockholm(io)
-    msa = MultipleSequenceAlignment(IndexedArray(IDS), convert(Matrix{Residue}, SEQS))
-    if checkalphabet
-        deletenotalphabetsequences!(msa, SEQS)
-    end
-    if deletefullgaps
-        deletefullgapcolumns!(msa)
-    end
-    msa
+function Base.parse(io::Union{IO, AbstractString},
+                   format::Type{Stockholm},
+                   output::Type{MultipleSequenceAlignment};
+                   deletefullgaps::Bool=true)::MultipleSequenceAlignment
+    msa = parse(io,
+                format,
+                NamedResidueMatrix{Array{Residue,2}},
+                deletefullgaps=deletefullgaps)
+    MultipleSequenceAlignment(msa)
 end
 
-function parse(io::Union{IO,AbstractString}, format::Type{Stockholm}, output::Type{Matrix{Residue}}; deletefullgaps::Bool=true, checkalphabet::Bool=false)
-    # Could be faster with a special _pre_readstockholm
-    IDS, SEQS, GF, GS, GC, GR = _pre_readstockholm(io)
-    _strings_to_msa(SEQS, deletefullgaps, checkalphabet)
+function Base.parse(io::Union{IO,AbstractString},
+                   format::Type{Stockholm},
+                   output::Type{Matrix{Residue}};
+                   deletefullgaps::Bool=true)::Matrix{Residue}
+    IDS, SEQS = _pre_readstockholm_sequences(io)
+    _strings_to_matrix_residue_unsafe(SEQS, deletefullgaps)
 end
 
-parse(io, format::Type{Stockholm};  generatemapping::Bool=false,
-      useidcoordinates::Bool=false, deletefullgaps::Bool=true, checkalphabet::Bool=false) = parse(io, Stockholm, AnnotatedMultipleSequenceAlignment,
-                                                                                                  generatemapping=generatemapping,
-                                                                                                  useidcoordinates=useidcoordinates,
-                                                                                                  deletefullgaps=deletefullgaps,
-                                                                                                  checkalphabet=checkalphabet)
+function Base.parse(io, format::Type{Stockholm};
+                    generatemapping::Bool=false,
+                    useidcoordinates::Bool=false,
+                    deletefullgaps::Bool=true,
+                    keepinserts::Bool=false)::AnnotatedMultipleSequenceAlignment
+    parse(io, Stockholm, AnnotatedMultipleSequenceAlignment,
+          generatemapping=generatemapping,
+          useidcoordinates=useidcoordinates,
+          deletefullgaps=deletefullgaps,
+          keepinserts=keepinserts)
+end
 
 # Print Pfam
 # ==========
 
-function _to_sequence_dict(annotation::Dict{Tuple{ASCIIString,ASCIIString},ASCIIString})
-    seq_dict = Dict{ASCIIString,Vector{ASCIIString}}()
+function _to_sequence_dict(annotation::Dict{Tuple{String,String},String})
+    seq_dict = Dict{String,Vector{String}}()
     for (key, value) in annotation
         seq_id = key[1]
-        if seq_id in keys(seq_dict)
-            push!(seq_dict[seq_id], string(key[2], '\t', value))
+        if haskey(seq_dict, seq_id)
+            push!(seq_dict[seq_id], string(seq_id, '\t', key[2], '\t', value))
         else
-            seq_dict[seq_id] = [ string(key[2], '\t', value) ]
+            seq_dict[seq_id] = [ string(seq_id, '\t', key[2], '\t', value) ]
         end
     end
     sizehint!(seq_dict, length(seq_dict))
 end
 
-function print(io::IO, msa::AnnotatedMultipleSequenceAlignment, format::Type{Stockholm})
+function Base.print(io::IO, msa::AnnotatedMultipleSequenceAlignment,
+                    format::Type{Stockholm})
     _printfileannotations(io, msa.annotations)
     _printsequencesannotations(io, msa.annotations)
     res_annotations = _to_sequence_dict(msa.annotations.residues)
+    seqnames = sequencenames(msa)
     for i in 1:nsequences(msa)
-        id = msa.id[i]
-        seq = asciisequence(msa, i)
-        println(io, string(id, "\t\t", seq))
+        id = seqnames[i]
+        seq = stringsequence(msa, i)
+        println(io, id, "\t\t\t", seq)
         if id in keys(res_annotations)
             for line in res_annotations[id]
-                println(io, string("#=GR ", id, '\t', line))
+                println(io, "#=GR ", line)
             end
         end
     end
@@ -137,13 +173,12 @@ function print(io::IO, msa::AnnotatedMultipleSequenceAlignment, format::Type{Sto
     println(io, "//")
 end
 
-function print(io::IO, msa::MultipleSequenceAlignment, format::Type{Stockholm})
+function Base.print(io::IO, msa::AbstractMatrix{Residue}, format::Type{Stockholm})
+    seqnames = sequencenames(msa)
     for i in 1:nsequences(msa)
-        id = msa.id[i]
-        seq = asciisequence(msa, i)
-        println(io, string(id, "\t\t", seq))
+        println(io, seqnames[i], "\t\t\t", stringsequence(msa, i))
     end
     println(io, "//")
 end
 
-print(msa::AnnotatedMultipleSequenceAlignment) = print(STDOUT, msa, Stockholm)
+Base.print(msa::AnnotatedMultipleSequenceAlignment) = print(stdout, msa, Stockholm)

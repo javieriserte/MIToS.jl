@@ -1,64 +1,91 @@
 """
-Shuffles the residues in each column, keeping fixed the gap positions
+It's like `Random.shuffle`. When a `Matrix{Residue}` is used, you can indicate if the gaps
+should remain their positions using the last boolean argument. The previous argument should
+be the dimension to shuffle, 1 for shuffling residues in a sequence (row) or 2 for shuffling
+residues in a column.
+
+```jldoctest
+julia> using MIToS.MSA
+
+julia> using Random
+
+julia> msa = hcat(res"RRE",res"DDK", res"G--")
+3×3 Array{Residue,2}:
+ R  D  G
+ R  D  -
+ E  K  -
+
+julia> Random.seed!(42);
+
+julia> shuffle(msa, 1, true)
+3×3 Array{Residue,2}:
+ G  D  R
+ D  R  -
+ E  K  -
+
+julia> Random.seed!(42);
+
+julia> shuffle(msa, 1, false)
+3×3 Array{Residue,2}:
+ G  D  R
+ D  -  R
+ -  E  K
+
+```
 """
-function shuffle_residues_columnwise!(aln::Matrix{Residue})
-    nseq, nres = size(aln)
-    for i in 1:nres
-        @inbounds for j in 1:nseq
-            a = aln[j,i]
-            if a != GAP
-                k = rand(1:nseq)
-                b = aln[k,i]
-                while b == GAP
-                    k = rand(1:nseq)
-                    b = aln[k,i]
-                end
-                aln[k,i] = a
-                aln[j,i] = b
+function Random.shuffle!(r::AbstractRNG, msa::Matrix{Residue},
+                       dim::Int, fixedgaps::Bool=true)
+    nseq, ncol = size(msa)
+    @assert dim == 1 || dim == 2 "The dimension must be 1 (sequences) or 2 (columns)"
+    if fixedgaps
+        mask = msa .!= GAP
+        if dim == 2
+            @inbounds for i in 1:ncol
+                shuffle!(view(msa,mask[:,i],i))
+            end
+        elseif dim == 1
+            @inbounds for i in 1:nseq
+                shuffle!(view(msa,i,mask[i,:]))
+            end
+        end
+    else
+        if dim == 2
+            @inbounds for i in 1:ncol
+                shuffle!(view(msa,:,i))
+            end
+        elseif dim == 1
+            @inbounds for i in 1:nseq
+                shuffle!(view(msa,i,:))
             end
         end
     end
-    aln
+    msa
 end
 
-# 0.00084 seconds faster than an implemetation similar to shuffle_residues_columnwise (PF00085)
-"""
-Shuffles the residues in each sequence, keeping fixed the gap positions
-"""
-function shuffle_residues_sequencewise!(aln::Matrix{Residue})
-    taln = transpose(aln)
-    shuffle_residues_columnwise!(taln)
-    transpose!(aln, taln)
+function Random.shuffle!(msa::Matrix{Residue}, args...)
+    shuffle!(Random.GLOBAL_RNG, msa, args...)
 end
 
 """
-Shuffles the residues in each sequence
+It's like `shuffle` but in-place. When a `Matrix{Residue}` or a `AbstractAlignedObject`
+(sequence or MSA) is used, you can indicate if the gaps should remain their positions
+using the last boolean argument.
 """
-function shuffle_sequencewise!(aln::Matrix{Residue})
-    nseq, nres = size(aln)
-    for i in 1:nseq
-        @inbounds for j in 1:nres
-            k = rand(1:nres)
-            aln[i,k], aln[i,j] = aln[i,j], aln[i,k]
-        end
-    end
-    aln
+function Random.shuffle(r::AbstractRNG, msa::Matrix{Residue}, args...)
+    shuffle!(r, copy(msa), args...)
 end
 
-"""
-Shuffles the residues in each column
-"""
-function shuffle_columnwise!(aln::Matrix{Residue})
-    nseq, nres = size(aln)
-    for i in 1:nres
-        @inbounds for j in 1:nseq
-            k = rand(1:nseq)
-            aln[k,i], aln[j,i] = aln[j,i], aln[k,i]
-        end
-    end
-    aln
+function Random.shuffle(msa::Matrix{Residue}, args...)
+    shuffle!(Random.GLOBAL_RNG, copy(msa), args...)
 end
 
-for fun in [ :shuffle_columnwise!, :shuffle_sequencewise!, :shuffle_residues_sequencewise!, :shuffle_residues_columnwise! ]
-    @eval $(fun)(aln::AbstractMultipleSequenceAlignment) = $(fun)(aln.msa)
+function Random.shuffle(r::AbstractRNG,
+                      msa::Union{AbstractAlignedObject,
+                                 NamedResidueMatrix{Array{Residue,2}}}, args...)
+    shuffle(r, copy(getresidues(msa)), args...)
+end
+
+function Random.shuffle(msa::Union{AbstractAlignedObject,
+                                   NamedResidueMatrix{Array{Residue,2}}}, args...)
+    shuffle(Random.GLOBAL_RNG, copy(getresidues(msa)), args...)
 end

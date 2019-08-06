@@ -1,17 +1,31 @@
 *.jl.cov
+*.jl.*.cov
 *.jl.mem
 
 # IJulia notebook:
 .ipynb_checkpoints
 
-/cookbook/*.*
-!/cookbook/*.ipynb
-
-/docs/*.*
-!/docs/*.ipynb
-!/docs/docs.js
-!/docs/compile.jl
-
 # vim temporary files
 *~
 
+# Temporary file (tests)
+/test/.tmp
+
+# Benchmark files
+/benchmark/.tune.jld
+/benchmark/.results/*
+
+# Documenter
+docs/build/
+docs/site/
+
+# Literate
+docs/src/cookbook/notebooks/
+docs/src/0*.md
+
+# Local Cookbook
+docs/seq.fasta
+
+# Manifest
+Manifest.toml
+JuliaManifest.toml

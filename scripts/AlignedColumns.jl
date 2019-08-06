@@ -1,5 +1,6 @@
 #!/usr/bin/env julia
 
+using Distributed
 using MIToS.Utils.Scripts
 
 Args = parse_commandline(
@@ -17,7 +18,7 @@ set_parallel(Args["parallel"])
 
 @everywhere begin
 
-    const args = remotecall_fetch(1,()->Args)
+    const args = remotecall_fetch(()->Args,1)
 
     import MIToS.Utils.Scripts: script
 
@@ -27,9 +28,12 @@ set_parallel(Args["parallel"])
     function script(input::Union{Base.LibuvStream,  AbstractString},
                     args,
                     fh_out::Union{Base.LibuvStream, IO})
-
-        aln = read(input, Stockholm, generatemapping=true, useidcoordinates=true, deletefullgaps=true)
-        print(fh_out, aln, Stockholm)
+        try
+            aln = readorparse(input, Stockholm, generatemapping=true, useidcoordinates=true, deletefullgaps=true)
+            print(fh_out, aln, Stockholm)
+        catch err
+            @warn(string("ERROR for ", input, ": ", err))
+        end
 
     end
     # -----------------------------------------------------------------------------

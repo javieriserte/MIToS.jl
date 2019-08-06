@@ -10,13 +10,13 @@ BMC bioinformatics, 12(1), 313.
 Echeverría, J., Cremades, E., ... & Alvarez, S. (2008).
 Covalent radii revisited. Dalton Transactions, (21), 2832-2838.
 """
-const covalentradius = Dict{ASCIIString,Float64}("C" => 0.77,
-                                                 "N" => 0.70,
-                                                 "O" => 0.66,
-                                                 "S" => 1.04,
-                                                 "H" => 0.31 )
+const covalentradius = Dict{String,Float64}("C" => 0.77,
+"N" => 0.70,
+"O" => 0.66,
+"S" => 1.04,
+"H" => 0.31 )
 
-const _3_letter_aa = ASCIIString[ "ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE", "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL" ]
+const _3_letter_aa = String[ "ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE", "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL" ]
 
 """
 van der Waals radius in Å from the Additional file 1 of Bickerton et. al. 2011
@@ -25,7 +25,7 @@ van der Waals radius in Å from the Additional file 1 of Bickerton et. al. 2011
 Comprehensive, atomic-level characterization of structurally characterized protein-protein interactions: the PICCOLO database.
 BMC bioinformatics, 12(1), 313.
 """
-const vanderwaalsradius = Dict{Tuple{ASCIIString,ASCIIString},Float64}(("ALA","C") => 1.61,
+const vanderwaalsradius = Dict{Tuple{String,String},Float64}(("ALA","C") => 1.61,
 ("ALA","CA") => 1.88,
 ("ALA","CB") => 1.88,
 ("ALA","N") => 1.64,
@@ -194,26 +194,26 @@ const vanderwaalsradius = Dict{Tuple{ASCIIString,ASCIIString},Float64}(("ALA","C
 ("VAL","O") => 1.42 )
 
 function _add_CTER_O!(dict)
-  for aa in _3_letter_aa
-    push!(dict, (aa, "OXT"))
-    push!(dict, (aa, "OT2"))
-    push!(dict, (aa, "OT1"))
-  end
-  dict
+    for aa in _3_letter_aa
+        push!(dict, (aa, "OXT"))
+        push!(dict, (aa, "OT2"))
+        push!(dict, (aa, "OT1"))
+    end
+    dict
 end
 
 function _add_CTER_O!(dict, value)
-  for aa in _3_letter_aa
-    push!(dict, (aa, "OXT") => value)
-    push!(dict, (aa, "OT2") => value)
-    push!(dict, (aa, "OT1") => value)
-  end
-  dict
+    for aa in _3_letter_aa
+        push!(dict, (aa, "OXT") => value)
+        push!(dict, (aa, "OT2") => value)
+        push!(dict, (aa, "OT1") => value)
+    end
+    dict
 end
 
 _add_CTER_O!(vanderwaalsradius, 1.42) # Using 1.42 because OXT is the terminal oxigen I assume same vdw radii than O
 
-const _hydrophobic = Set{Tuple{ASCIIString, ASCIIString}}( [ ("ALA","CB"),
+const _hydrophobic = Set{Tuple{String, String}}( [ ("ALA","CB"),
 ("ARG","CB"),
 ("ARG","CG"),
 ("ASN","CB"),
@@ -266,9 +266,9 @@ const _hydrophobic = Set{Tuple{ASCIIString, ASCIIString}}( [ ("ALA","CB"),
 ("VAL","CG1"),
 ("VAL","CG2") ] )
 
-const _aromatic_res = Set{ASCIIString}( [ "HIS", "PHE", "TRP", "TYR" ] )
+const _aromatic_res = Set{String}( [ "HIS", "PHE", "TRP", "TYR" ] )
 
-const _aromatic = Set{Tuple{ASCIIString, ASCIIString}}( [ ("HIS","CD2"),
+const _aromatic = Set{Tuple{String, String}}( [ ("HIS","CD2"),
 ("HIS","CE1"),
 ("HIS","CG"),
 ("HIS","ND1"),
@@ -295,7 +295,7 @@ const _aromatic = Set{Tuple{ASCIIString, ASCIIString}}( [ ("HIS","CD2"),
 ("TYR","CG"),
 ("TYR","CZ") ] )
 
-const _cationic = Set{Tuple{ASCIIString, ASCIIString}}( [ ("ARG","CZ"),
+const _cationic = Set{Tuple{String, String}}( [ ("ARG","CZ"),
 ("ARG","NE"),
 ("ARG","NH1"),
 ("ARG","NH2"),
@@ -306,7 +306,7 @@ const _cationic = Set{Tuple{ASCIIString, ASCIIString}}( [ ("ARG","CZ"),
 ("HIS","NE2"),
 ("LYS","NZ") ] )
 
-const _anionic = Set{Tuple{ASCIIString, ASCIIString}}( [ ("ASP","CG"),
+const _anionic = Set{Tuple{String, String}}( [ ("ASP","CG"),
 ("ASP","OD1"),
 ("ASP","OD2"),
 ("GLU","CD"),
@@ -318,7 +318,7 @@ _add_CTER_O!(_anionic)
 """Keys come from Table 1 of Bickerton et. al. 2011,
 The hydrogen names of the donor comes from: http://biomachina.org/courses/modeling/download/topallh22x.pro
 Synonyms come from: http://www.bmrb.wisc.edu/ref_info/atom_nom.tbl"""
-const _hbond_donor = Dict{Tuple{ASCIIString, ASCIIString}, Vector{ASCIIString}}( ("ALA","N") => ["HN", "H", "HN1","H1","1H", "HN2","H2","2H", "HN3","H3","3H", "HT1","HT2","HT3"],
+const _hbond_donor = Dict{Tuple{String, String}, Vector{String}}( ("ALA","N") => ["HN", "H", "HN1","H1","1H", "HN2","H2","2H", "HN3","H3","3H", "HT1","HT2","HT3"],
 ("ARG","N") => ["HN", "H", "HN1","H1","1H", "HN2","H2","2H", "HN3","H3","3H", "HT1","HT2","HT3"],
 ("ARG","NE") => ["HE", "HNE"],
 ("ARG","NH1") => ["HH11","HH12", "1HH1","2HH1"],
@@ -353,11 +353,12 @@ const _hbond_donor = Dict{Tuple{ASCIIString, ASCIIString}, Vector{ASCIIString}}(
 ("PRO","N") => ["HN1","H1","1H", "HN2","H2","2H", "HT1","HT2"] )
 # Proline N-Terminal (RESIDUE PROP)
 
-
-"""Keys come from Table 1 of Bickerton et. al. 2011,
+"""
+Keys come from Table 1 of Bickerton et. al. 2011,
 Antecedents come from come from: http://biomachina.org/courses/modeling/download/topallh22x.pro
-Synonyms come from: http://www.bmrb.wisc.edu/ref_info/atom_nom.tbl"""
-const _hbond_acceptor = Dict{Tuple{ASCIIString, ASCIIString}, Vector{ASCIIString}}( ("ALA","O") => ["C"], ("ALA","OT1") => ["C"], ("ALA","OXT") => ["C"], ("ALA","OT2") => ["C"],
+Synonyms come from: http://www.bmrb.wisc.edu/ref_info/atom_nom.tbl
+"""
+const _hbond_acceptor = Dict{Tuple{String, String}, Vector{String}}( ("ALA","O") => ["C"], ("ALA","OT1") => ["C"], ("ALA","OXT") => ["C"], ("ALA","OT2") => ["C"],
 ("ARG","O") => ["C"], ("ARG","OT1") => ["C"], ("ARG","OXT") => ["C"], ("ARG","OT2") => ["C"],
 ("ASN","O") => ["C"], ("ASN","OT1") => ["C"], ("ASN","OXT") => ["C"], ("ASN","OT2") => ["C"],
 ("ASN","OD1") => ["CG"],
@@ -391,54 +392,58 @@ const _hbond_acceptor = Dict{Tuple{ASCIIString, ASCIIString}, Vector{ASCIIString
 ("VAL","O") => ["C"], ("VAL","OT1") => ["C"], ("VAL","OXT") => ["C"], ("VAL","OT2") => ["C"] )
 
 function _generate_dict!(dict, input_dict)
-  for (res, atom) in keys(input_dict)
-    if haskey(dict, res)
-      push!(dict[res], atom)
-    else
-      dict[res] = Set{ASCIIString}(ASCIIString[ atom ])
+    for (res, atom) in keys(input_dict)
+        if haskey(dict, res)
+            push!(dict[res], atom)
+        else
+            dict[res] = Set{String}(String[ atom ])
+        end
     end
-  end
-  dict
+    dict
 end
 
-function _generate_dict!(dict, input_set::Set{Tuple{ASCIIString,ASCIIString}})
-  for (res, atom) in input_set
-    if haskey(dict, res)
-      push!(dict[res], atom)
-    else
-      dict[res] = Set{ASCIIString}(ASCIIString[ atom ])
+function _generate_dict!(dict, input_set::Set{Tuple{String,String}})
+    for (res, atom) in input_set
+        if haskey(dict, res)
+            push!(dict[res], atom)
+        else
+            dict[res] = Set{String}(String[ atom ])
+        end
     end
-  end
-  dict
+    dict
 end
 
 function _generate_interaction_keys(vdw, hyd, aro, cat, ani)
-  dict = Dict{ASCIIString, Set{ASCIIString}}()
-  _generate_dict!(dict, vdw)
-  _generate_dict!(dict, hyd)
-  _generate_dict!(dict, aro)
-  _generate_dict!(dict, cat)
-  _generate_dict!(dict, ani)
-  dict
+    dict = Dict{String, Set{String}}()
+    _generate_dict!(dict, vdw)
+    _generate_dict!(dict, hyd)
+    _generate_dict!(dict, aro)
+    _generate_dict!(dict, cat)
+    _generate_dict!(dict, ani)
+    dict
 end
 
 const _interaction_keys = _generate_interaction_keys(vanderwaalsradius, _hydrophobic, _aromatic, _cationic, _anionic)
 
-_generate_atoms_set(res::PDBResidue) = ASCIIString[ atom.atom for atom in res.atoms[findheavy(res)] ]
+_generate_atoms_set(res::PDBResidue) = String[ atom.atom for atom in res.atoms[findheavy(res)] ]
 
+"""
+This function takes a `PDBResidue` and returns `true` only if all the atoms can be used
+for checking interactions.
+"""
 function check_atoms_for_interactions(res::PDBResidue)
-  atoms = _generate_atoms_set(res)
-  if haskey(_interaction_keys, res.id.name)
-    used = _interaction_keys[res.id.name]
-  else
-    warn(string("RESIDUE: ", res.id.name, " is unknown for MIToS.PDB (AtomsData.jl)"))
-    return(false)
-  end
-  for atom in atoms
-    if !( atom in used )
-      warn(string("RESIDUE ", res.id.name," ATOM ", atom, " is unknown for MIToS.PDB (AtomsData.jl)"))
-      return( false )
+    atoms = _generate_atoms_set(res)
+    if haskey(_interaction_keys, res.id.name)
+        used = _interaction_keys[res.id.name]
+    else
+        @warn "RESIDUE $(res.id.name) is unknown to MIToS.PDB (AtomsData.jl)"
+        return(false)
     end
-  end
-  true
+    for atom in atoms
+        if !( atom in used )
+            @warn "RESIDUE $(res.id.name) ATOM $(atom) is unknown to MIToS.PDB (AtomsData.jl)"
+            return( false )
+        end
+    end
+    true
 end

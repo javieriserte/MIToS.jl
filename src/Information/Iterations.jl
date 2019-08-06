@@ -1,132 +1,197 @@
-# sub(aln, :, i) is ~ 0.015 seconds faster than aln[:,i] and better with the memmory (PF00085)
-# aln.msa' takes ~ 0.015 seconds in PF00085
-# Using aln.msa instead of aln in estimate_on_column_pairs is ~ 0.53 seconds faster for PF00085
-
-"""
-`estimateincolumns(aln, [count,] use, [α, β,] measure, [pseudocount,] [weight,] [usediagonal, diagonalvalue])`
-
-This function `estimate` a `AbstractMeasure` in columns or pair of columns of a MSA.
-
-- `aln` : This argument is mandatory and it should be a `Matrix{Residue}`. Use the function `getresidues` (from the MSA module) over a MSA object to get the needed matrix.
-- `count` : This argument is optional. It should be defined when `use` is a `ResidueProbability` object. It indicates the element type of the counting table.
-- `use` : This argument is mandatory and indicates the sub-type of `ResidueContingencyTables` used by `estimate` inside the function.
-If the table has one dimension (`N`=`1`), the occurrences/probabilities are counted for each sequence/column.
-If the table has two dimension (`N`=`2`), pairs of sequences/columns are used.
-The dimension `N` and the `UseGap` parameter of `Residueount{T, N, UseGap}` or `ResidueProbability{T, N, UseGap}` determines the output and behaviour of this functions.
-If `UseGap` is true, gaps are used in the estimations.
-- `α` : This argument is optional, and indicates the weight of real frequencies to apply BLOSUM62 based pseudo frequencies.
-- `β` : This argument is optional, and indicates the weight of BLOSUM62 based pseudo frequencies.
-- `measure` : This argument is mandatory and indicates the measure to be used by `estimate` inside the function.
-- `pseudocount` : This argument is optional. It should be an `AdditiveSmoothing` instance (default to zero).
-- `weight` : This argument is optional. It should be an instance of `ClusteringResult` or `AbstractVector` (vector of weights).
-Each sequence has weight 1 (`NoClustering()`) by default.
-- `usediagonal` : This functions return a `Vector` in the one dimensional case, or a `PairwiseListMatrix` in the bidimensional case.
-This argument only have sense in the bidimensional case and indicates if the list on the `PairwiseListMatrix` should include the diagonal (default to `true`).
-- `diagonalvalue` : This argument is optional (default to zero). Indicates the value of output diagonal elements.
-"""
-function estimateincolumns{T, TP, UseGap}(aln::Matrix{Residue}, use::Type{ResidueCount{T, 1, UseGap}}, measure::AbstractMeasure{TP},
-                                          pseudocount::Pseudocount{T}=zero(AdditiveSmoothing{T}), weight::SequenceWeights=NoClustering())
-  N = ResidueCount{T, 1, UseGap}()
-  ncol = ncolumns(aln)
-  scores = Array(TP, ncol)
-  for i in 1:ncol
-    fill!(N, pseudocount) # instead of fill! with 0
-    count!(N, weight, sub(aln,:,i))
-    scores[i] = estimate(measure, N)
-  end
-  scores
+function _get_matrix_residue(msa::AbstractMultipleSequenceAlignment)::Matrix{Residue}
+    getarray(namedmatrix(msa))
 end
+_get_matrix_residue(msa::NamedArray)::Matrix{Residue} = getarray(msa)
+_get_matrix_residue(msa::Matrix{Residue})::Matrix{Residue} = msa
 
-function estimateincolumns{T <: Real, TP, UseGap}(aln::Matrix{Residue}, count::Type{T}, use::Type{ResidueProbability{TP, 1, UseGap}}, measure::AbstractMeasure{TP},
-                                                  pseudocount::Pseudocount{T}=zero(AdditiveSmoothing{T}), weight::SequenceWeights=NoClustering())
-  N = ResidueCount{T, 1, UseGap}()
-  P = ResidueProbability{TP, 1, UseGap}()
-  ncol = ncolumns(aln)
-  scores = Array(TP, ncol)
-  for i in 1:ncol
-    fill!(N, pseudocount) # instead of fill! with 0
-    count!(N, weight, sub(aln,:,i))
-    fill!(P, N) # count! calls update!
-    scores[i] = estimate(measure, P)
-  end
-  scores
-end
-
-function estimateincolumns{T, TP, UseGap}(aln::Matrix{Residue}, use::Type{ResidueCount{T, 2, UseGap}}, measure::SymmetricMeasure{TP},
-                                          pseudocount::Pseudocount{T}=zero(AdditiveSmoothing{T}), weight::SequenceWeights=NoClustering(), usediagonal::Bool=true, diagonalvalue::TP=zero(TP))
-  Nab = ResidueCount{T, 2, UseGap}()
-  ncol = ncolumns(aln)
-  scores = PairwiseListMatrix(TP, ncol, usediagonal, diagonalvalue) # Array(TP, ncol, ncol)
-  @inbounds for i in 1:ncol
-    a = sub(aln,:,i)
-    for j in i:ncol
-      if !usediagonal && i == j
-        continue
-      end
-      b = sub(aln,:,j)
-      fill!(Nab, pseudocount) # instead of fill! with 0
-      count!(Nab, weight, a, b)
-      scores[i,j] = estimate(measure, Nab)
+# Kernel function to fill ContingencyTable based on residues
+function _mapfreq_kernel!(f::Function,
+                          freqtable::Union{Probabilities{T,N,A},Counts{T,N,A}},
+                          weights, pseudocounts, pseudofrequencies,
+                          res::Vararg{AbstractVector{Residue},N}) where {T,N,A}
+    table = freqtable.table
+    _cleanup_table!(table) # count! calls _cleanup_temporal! and cleans marginals
+    count!(table, weights, pseudocounts, res...) # count! calls apply_pseudocount! and  _update!
+    if isa(freqtable, Probabilities{T,N,A})
+        normalize!(table)
+        apply_pseudofrequencies!(table, pseudofrequencies)
     end
-  end
-  scores
+    f(freqtable)
 end
 
-function estimateincolumns{T <: Real, TP, UseGap}(aln::Matrix{Residue}, count::Type{T}, use::Type{ResidueProbability{TP, 2, UseGap}},
-                                                  measure::SymmetricMeasure{TP}, pseudocount::Pseudocount{T}=zero(AdditiveSmoothing{T}),
-                                                  weight::SequenceWeights=NoClustering(), usediagonal::Bool=true, diagonalvalue::TP=zero(TP))
-  Nab = ResidueCount{T, 2, UseGap}()
-  Pab = ResidueProbability{TP, 2, UseGap}()
-  ncol = ncolumns(aln)
-  scores = PairwiseListMatrix(TP, ncol, usediagonal, diagonalvalue) # zeros(TP, ncol, ncol)
-  @inbounds for i in 1:ncol
-    a = sub(aln,:,i)
-    for j in i:ncol
-      if !usediagonal && i == j
-        continue
-      end
-      b = sub(aln,:,j)
-      fill!(Nab, pseudocount) # instead of fill! with 0
-      count!(Nab, weight, a, b)
-      fill!(Pab, Nab)
-      scores[i,j] = estimate(measure, Pab)
+_mapfreq_kargs_doc = """
+- `weights` (default: `NoClustering()`): Weights to be used for table counting.
+- `pseudocounts` (default: `NoPseudocount()`): `Pseudocount` object to be applied to table.
+- `pseudofrequencies` (default: `NoPseudofrequencies()`): `Pseudofrequencies` to be applied to the normalized (probabilities) table.
+"""
+
+_mappairfreq_kargs_doc = """
+- `diagonalvalue` (default: `0`): Value to fill diagonal elements if `usediagonal` is `Val{false}`.
+"""
+
+# Residues: The output is a Named Vector
+# --------------------------------------
+
+function _mapfreq!(f::Function,
+res_list::Vector{V}, # sequences or columns
+table::Union{Probabilities{T,1,A},Counts{T,1,A}};
+weights = NoClustering(),
+pseudocounts::Pseudocount = NoPseudocount(),
+pseudofrequencies::Pseudofrequencies = NoPseudofrequencies()) where {T,A,V<:AbstractArray{Residue}}
+    scores = map(res_list) do res
+        _mapfreq_kernel!(f, table, weights, pseudocounts, pseudofrequencies, res)
     end
-  end
-  scores
+    scores
 end
 
-function estimateincolumns{T <: Real, TP}(aln::Matrix{Residue}, count::Type{T}, use::Type{ResidueProbability{TP, 2, false}}, α, β,
-                                          measure::SymmetricMeasure{TP}, pseudocount::Pseudocount{T}=zero(AdditiveSmoothing{T}),
-                                          weight::SequenceWeights=NoClustering(), usediagonal::Bool=true, diagonalvalue::TP=zero(TP))
-  Nab = ResidueCount{T, 2, false}()
-  Pab = ResidueProbability{TP, 2, false}()
-  Gab = ResidueProbability{TP, 2, false}()
-  ncol = ncolumns(aln)
-  scores = PairwiseListMatrix(TP, ncol, usediagonal, diagonalvalue) # zeros(TP, ncol, ncol)
-  @inbounds for i in 1:ncol
-    a = sub(aln,:,i)
-    for j in i:ncol
-      if !usediagonal && i == j
-        continue
-      end
-      b = sub(aln,:,j)
-      fill!(Nab, pseudocount) # instead of fill! with 0
-      count!(Nab, weight, a, b)
-      fill!(Pab, Nab)
-      blosum_pseudofrequencies!(Gab, Pab)
-      apply_pseudofrequencies!(Pab, Gab, α, β)
-      scores[i,j] = estimate(measure, Pab)
-    end
-  end
-  scores
-end
-
-estimateincolumns(aln::AbstractMultipleSequenceAlignment, args...) = estimateincolumns(aln.msa, args...)
-
+# Map to each column
 
 """
-This function `estimate` a `measure` over sequences or sequence pairs.
-It has the same arguments than `estimateincolumns`, look the documentation of the last.
+It efficiently map a function (first argument) that takes a table of `Counts` or
+`Probabilities` (third argument). The table is filled in place with the counts or
+probabilities of each column from the `msa` (second argument).
+
+$_mapfreq_kargs_doc
 """
-estimateinsequences(aln::Matrix{Residue}, args...) = estimateincolumns(transpose(aln), args...)
-estimateinsequences(aln::AbstractMultipleSequenceAlignment, args...) = estimateincolumns(transpose(aln.msa), args...)
+function mapcolfreq!(f::Function, msa::AbstractMatrix{Residue},
+                     table::Union{Probabilities{T,1,A},Counts{T,1,A}}; kargs...) where {T,A}
+    N = ncolumns(msa)
+    residues = _get_matrix_residue(msa)
+    ncol = size(residues,2)
+    columns = map(i -> view(residues,:,i), 1:ncol) # 2x faster than calling view inside the loop
+    scores = _mapfreq!(f, columns, table; kargs...)
+    name_list = columnnames(msa)
+    NamedArray(reshape(scores, (1,N)),
+               (OrderedDict{String,Int}(string(f) => 1),
+                OrderedDict{String,Int}(name_list[i] => i for i in 1:N)),
+               ("Function","Col"))
+end
+
+# Map to each sequence
+
+"""
+It efficiently map a function (first argument) that takes a table of `Counts` or
+`Probabilities` (third argument). The table is filled in place with the counts or
+probabilities of each sequence from the `msa` (second argument).
+
+$_mapfreq_kargs_doc
+"""
+function mapseqfreq!(f::Function, msa::AbstractMatrix{Residue},
+                     table::Union{Probabilities{T,1,A},Counts{T,1,A}}; kargs...) where {T,A}
+    N = nsequences(msa)
+    sequences = getresiduesequences(msa)
+    name_list = sequencenames(msa)
+    scores = _mapfreq!(f, sequences, table; kargs...)
+    NamedArray(reshape(scores, (N,1)),
+               (OrderedDict{String,Int}(name_list[i] => i for i in 1:N),
+               OrderedDict{String,Int}(string(f) => 1)),
+               ("Seq","Function"))
+end
+
+# Residue pairs: The output is a Named PairwiseListMatrix
+# -------------------------------------------------------
+
+function _mappairfreq!(f::Function,
+res_list::Vector{V}, # sequences or columns
+plm::PairwiseListMatrix{T,D,TV}, # output
+table::Union{Probabilities{T,2,A},Counts{T,2,A}},
+usediagonal::Type{Val{D}} = Val{true};
+weights = NoClustering(),
+pseudocounts::Pseudocount = NoPseudocount(),
+pseudofrequencies::Pseudofrequencies = NoPseudofrequencies(),
+diagonalvalue::T = zero(T)) where {T,D,TV,A,V<:AbstractArray{Residue}} # diagonalvalue used by mapcolpairfreq! ...
+    @inbounds @iterateupper plm D begin
+        list[k] = :($_mapfreq_kernel!)(:($f), :($table), :($weights),
+                                       :($pseudocounts), :($pseudofrequencies),
+                                       :($res_list)[i], :($res_list)[j])
+    end
+    plm
+end
+
+# Map to column pairs
+
+"""
+It efficiently map a function (first argument) that takes a table of `Counts` or
+`Probabilities` (third argument). The table is filled in place with the counts or
+probabilities of each pair of columns from the `msa` (second argument).
+The fourth positional argument `usediagonal` indicates if the function should be applied
+to identical element pairs (default to `Val{true}`).
+
+$_mapfreq_kargs_doc
+$_mappairfreq_kargs_doc
+"""
+function mapcolpairfreq!(f::Function, msa::AbstractMatrix{Residue},
+                         table::Union{Probabilities{T,2,A},Counts{T,2,A}},
+                         usediagonal::Type{Val{D}} = Val{true};
+                         diagonalvalue::T = zero(T),
+                         kargs...) where {T,A,D}
+    ncol = ncolumns(msa)
+    residues = _get_matrix_residue(msa)
+    columns = map(i -> view(residues,:,i), 1:ncol) # 2x faster than calling view inside the loop
+    scores = columnpairsmatrix(msa, T, Val{D}, diagonalvalue) # Named PairwiseListMatrix
+    plm = getarray(scores)::PairwiseListMatrix{T,D,Vector{T}} # PairwiseListMatrix
+    _mappairfreq!(f, columns, plm, table, Val{D}; kargs...)
+    scores
+end
+
+# Map to sequence pairs
+
+"""
+It efficiently map a function (first argument) that takes a table of `Counts` or
+`Probabilities` (third argument). The table is filled in place with the counts or
+probabilities of each pair of sequences from the `msa` (second argument).
+The fourth positional argument `usediagonal` indicates if the function should be applied
+to identical element pairs (default to `Val{true}`).
+
+$_mapfreq_kargs_doc
+$_mappairfreq_kargs_doc
+"""
+function mapseqpairfreq!(f::Function, msa::AbstractMatrix{Residue},
+                         table::Union{Probabilities{T,2,A},Counts{T,2,A}},
+                         usediagonal::Type{Val{D}} = Val{true};
+                         diagonalvalue::T = zero(T),
+                         kargs...) where {T,A,D}
+    sequences = getresiduesequences(msa)
+    scores = sequencepairsmatrix(msa, T, Val{D}, diagonalvalue) # Named PairwiseListMatrix
+    plm = getarray(scores)::PairwiseListMatrix{T,D,Vector{T}} # PairwiseListMatrix
+    _mappairfreq!(f, sequences, plm, table, Val{D}; kargs...)
+    scores
+end
+
+# cMI
+# ===
+
+"""
+`cumulative` allows to calculate cumulative scores (i.e. cMI) as defined in Buslje et. al. 2010
+
+*"We calculated a cumulative mutual information score (cMI) for each residue as the sum of
+MI values above a certain threshold for every amino acid pair where the particular residue
+appears. This value defines to what degree a given amino acid takes part in a mutual
+information network."*
+Buslje, Cristina Marino, Elin Teppa, Tomas Di Doménico, José María Delfino, and Morten
+Nielsen. *Networks of high mutual information define the structural proximity of catalytic
+sites: implications for catalytic residue identification.* PLoS Comput Biol 6, no. 11
+(2010): e1000978.
+"""
+function cumulative(plm::PairwiseListMatrix{T,D,VT}, threshold::T) where {T,D,VT}
+    N = size(plm, 1)
+    out = zeros(T, N)
+    @iterateupper plm false begin
+        elem = list[k]
+        if !isnan(elem) && elem >= :($threshold)
+            :($out)[i] += elem
+            :($out)[j] += elem
+        end
+    end
+    reshape(out, (1,N))
+end
+
+function cumulative(nplm::NamedArray{T,2,PairwiseListMatrix{T,D,TV},DN},
+                    threshold::T) where {T,D,TV,DN}
+    N = size(nplm, 2)
+    name_list = names(nplm, 2)
+    NamedArray(cumulative(getarray(nplm), threshold),
+               (OrderedDict{String,Int}("cumulative" => 1),
+               OrderedDict{String,Int}(name_list[i] => i for i in 1:N)),
+               ("Function", dimnames(nplm,2)))
+end

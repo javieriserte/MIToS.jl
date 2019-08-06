@@ -1,5 +1,9 @@
 #!/usr/bin/env julia
 
+using Pkg
+using Dates
+using DelimitedFiles
+using Distributed
 using MIToS.Utils.Scripts
 
 Args = parse_commandline(
@@ -7,7 +11,7 @@ Args = parse_commandline(
     ["--format", "-f"],
     Dict(
         :help => "Format of the MSA: Stockholm, Raw or FASTA",
-        :arg_type => ASCIIString,
+        :arg_type => String,
         :default => "Stockholm"
     ),
     ["--lambda", "-L"],
@@ -57,7 +61,7 @@ Args = parse_commandline(
     # Keywords...
     description="""
     This takes a MSA file as input.
-    Calculates and saves on *.busjle09.csv a Z score and a corrected MI/MIp as described on:\n
+    It calculates and saves on *.busjle09.csv a Z score and a corrected MI/MIp as described on:\n
     Buslje, C. M., Santos, J., Delfino, J. M., & Nielsen, M. (2009).
     Correction for phylogeny, small number of observations and data redundancy improves the identification of coevolving amino acid pairs using mutual information.
     Bioinformatics, 25(9), 1125-1131.
@@ -70,7 +74,7 @@ set_parallel(Args["parallel"])
 
 @everywhere begin
 
-    const args = remotecall_fetch(1,()->Args)
+    const args = remotecall_fetch(()->Args,1)
 
     import MIToS.Utils.Scripts: script
 
@@ -84,31 +88,32 @@ set_parallel(Args["parallel"])
                     args,
                     fh_out::Union{Base.LibuvStream, IO})
         # TO DO ------------------------------------------------------------------
-        println(fh_out, "# MIToS ", Pkg.installed("MIToS"), " Buslje09.jl ", now())
+        println(fh_out, "# MIToS ", Pkg.installed()["MIToS"], " Buslje09.jl ", now())
         println(fh_out, "# \tBuslje, C. M., Santos, J., Delfino, J. M., & Nielsen, M. (2009).")
         println(fh_out, "# \tCorrection for phylogeny, small number of observations and data redundancy improves the identification of coevolving amino acid pairs using mutual information.")
-        println(fh_out, "# \tBioinformatics, 25(9), 1125-1131.""")
+        println(fh_out, "# \tBioinformatics, 25(9), 1125-1131.")
         println(fh_out, "# used arguments:")
         for (key, value) in args
             println(fh_out, "# \t", key, "\t\t", value)
         end
-        form = ascii(args["format"])
+        form = string(args["format"])
         if form == "Stockholm"
-            msa = read(input, Stockholm)
+            msa = readorparse(input, Stockholm)
         elseif form == "FASTA"
-            msa = read(input, FASTA)
+            msa = readorparse(input, FASTA)
         elseif form == "Raw"
-            msa = read(input, Raw)
+            msa = readorparse(input, Raw)
         else
             throw(ErrorException("--format should be Stockholm, Raw or FASTA."))
         end
-        zscore, mip = buslje09(msa,lambda=Args["lambda"],
-                               clustering=Args["clustering"], threshold=Args["threshold"],
-                               maxgap=Args["maxgap"], apc=Args["apc"], samples=Args["samples"],
-                               usegap=Args["usegap"], fixedgaps=Args["fixedgaps"])
-        println(fh_out, "i,j,", Args["apc"] ? "ZMIp" : "ZMI", ",", Args["apc"] ? "MIp" : "MI")
-        table = hcat(to_table(zscore, false), to_table(mip, false)[:,3])
-        writecsv(fh_out, table)
+        zscore, mip = buslje09(msa, lambda=args["lambda"],
+                               clustering=args["clustering"], threshold=args["threshold"],
+                               maxgap=args["maxgap"], apc=args["apc"], samples=args["samples"],
+                               alphabet = args["usegap"] ? GappedAlphabet() : UngappedAlphabet(),
+                               fixedgaps=args["fixedgaps"])
+        println(fh_out, "i,j,", args["apc"] ? "ZMIp" : "ZMI", ",", args["apc"] ? "MIp" : "MI")
+        table = hcat(to_table(zscore, diagonal=false), to_table(mip, diagonal=false)[:,3])
+        writedlm(fh_out, table, ',')
         # ------------------------------------------------------------------------
     end
 

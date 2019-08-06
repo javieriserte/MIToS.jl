@@ -3,14 +3,26 @@ os:
   - linux
   - osx
 julia:
-  - 0.4
-#  - release
-#  - nightly
+  - 0.7
+  - 1.0
+  - nightly
+matrix:
+  allow_failures:
+    - julia: nightly
+  fast_finish: true
+
+codecov: true
+coveralls: true
+
 notifications:
   email: false
-script:
-  - if [[ -a .git/shallow ]]; then git fetch --unshallow; fi
-  - julia --check-bounds=yes -e 'Pkg.clone(pwd()); Pkg.build("MIToS"); Pkg.test("MIToS"; coverage=true)'
-after_success:
-  - julia -e 'cd(Pkg.dir("MIToS")); Pkg.add("Coverage"); using Coverage; Coveralls.submit(process_folder()); Codecov.submit(Codecov.process_folder())'
 
+jobs:
+  include:
+    - stage: "Documentation"
+      julia: 1.0
+      os: linux
+      script:
+        - julia --project=docs/ -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
+        - julia --project=docs/ docs/make.jl
+      after_success: skip
